@@ -9,6 +9,24 @@ include(FetchContent)
 include(ExternalProject)
 
 set(CRYPTOPP_INSTALL_DIR ${CMAKE_BINARY_DIR}/_deps/cryptopp-install)
+file(MAKE_DIRECTORY ${CRYPTOPP_INSTALL_DIR}/include)
+file(MAKE_DIRECTORY ${CRYPTOPP_INSTALL_DIR}/lib/pkgconfig)
+
+# Write a .pc file so uvgRTP's pkg-config check finds cryptopp at configure time.
+file(WRITE ${CRYPTOPP_INSTALL_DIR}/lib/pkgconfig/libcrypto++.pc
+"prefix=${CRYPTOPP_INSTALL_DIR}
+exec_prefix=\${prefix}
+libdir=\${prefix}/lib
+includedir=\${prefix}/include
+
+Name: libcrypto++
+Description: Crypto++ library
+Version: 8.9.0
+Libs: -L\${libdir} -lcryptopp
+Cflags: -I\${includedir}
+")
+
+set(ENV{PKG_CONFIG_PATH} "${CRYPTOPP_INSTALL_DIR}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
 
 ExternalProject_Add(cryptopp_ext
   GIT_REPOSITORY https://github.com/weidai11/cryptopp.git
@@ -35,5 +53,24 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(uvgRTP)
 
-target_link_libraries(audpipe PRIVATE cryptopp uvgrtp)
+# Get libopus for encoding.
+FetchContent_Declare(
+  Opus
+  GIT_REPOSITORY https://github.com/xiph/opus.git
+  GIT_TAG        v1.5.2
+)
+FetchContent_MakeAvailable(Opus)
+target_compile_options(opus PRIVATE -O2)
+set(OPUS_X86_PRESUME_SSE4_1 ON CACHE BOOL "" FORCE)
+set(OPUS_X86_PRESUME_AVX ON CACHE BOOL "" FORCE)
+set(OPUS_X86_PRESUME_AVX2 ON CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog
+    GIT_TAG v1.x
+)
+FetchContent_MakeAvailable(spdlog)
+
+target_link_libraries(audpipe PRIVATE cryptopp uvgrtp opus spdlog::spdlog $<$<BOOL:${MINGW}>:ws2_32>)
 target_include_directories(audpipe PUBLIC include)
