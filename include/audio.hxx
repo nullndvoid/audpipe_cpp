@@ -32,6 +32,7 @@ class AudioBackend {
 public:
   virtual ~AudioBackend() = default;
   virtual std::vector<AudioDevice> get_inputs() = 0;
+  virtual std::vector<AudioDevice> get_outputs() = 0;
 
   // virtual void open(const AudioDevice &device) = 0;
   // virtual void close() = 0;

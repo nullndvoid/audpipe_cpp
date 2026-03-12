@@ -27,6 +27,8 @@ void pa_sourcelist_cb(pa_context *c, const pa_source_info *l, int eol,
 class PulseaudioBackend : public AudioBackend {
 public:
   std::vector<AudioDevice> get_inputs() override;
+  std::vector<AudioDevice> get_outputs() override;
+
   // void open(const AudioDevice &device) override;
   // void close() override;
 
@@ -133,7 +135,27 @@ void pa_sourcelist_cb(pa_context *c, const pa_source_info *l, int eol,
       AudioDevice(std::string(l->name), std::string(l->description), l->index,
                   l->sample_spec.rate, l->sample_spec.channels, is_monitor);
 
-  data.logger->info("Found device #{} \'{}\' with sample rate {}.",
+  data.logger->info("Found source device #{} \'{}\' with sample rate {}.",
+                    device.index, device.description, device.sample_rate);
+  data.devices->push_back(device);
+}
+
+void pa_sinklist_cb(pa_context *c, const pa_sink_info *l, int eol,
+                    void *userdata) {
+
+  pa_device_info_userdata &data =
+      *reinterpret_cast<pa_device_info_userdata *>(userdata);
+
+  // Reached end of list.
+  if (eol > 0) {
+    return;
+  }
+
+  auto device =
+      AudioDevice(std::string(l->name), std::string(l->description), l->index,
+                  l->sample_spec.rate, l->sample_spec.channels, false);
+
+  data.logger->info("Found sink device #{} \'{}\' with sample rate {}.",
                     device.index, device.description, device.sample_rate);
   data.devices->push_back(device);
 }
@@ -145,6 +167,23 @@ std::vector<AudioDevice> PulseaudioBackend::get_inputs() {
 
   pa_operation *pa_op =
       pa_context_get_source_info_list(this->ctx, pa_sourcelist_cb, &userdata);
+
+  while (pa_operation_get_state(pa_op) == PA_OPERATION_RUNNING) {
+    pa_mainloop_iterate(this->mainloop, 1, nullptr);
+  }
+
+  pa_operation_unref(pa_op);
+
+  return devices;
+}
+
+std::vector<AudioDevice> PulseaudioBackend::get_outputs() {
+  std::vector<AudioDevice> devices;
+  pa_device_info_userdata_t userdata = {.devices = &devices,
+                                        .logger = this->logger};
+
+  pa_operation *pa_op =
+      pa_context_get_sink_info_list(this->ctx, pa_sinklist_cb, &userdata);
 
   while (pa_operation_get_state(pa_op) == PA_OPERATION_RUNNING) {
     pa_mainloop_iterate(this->mainloop, 1, nullptr);
