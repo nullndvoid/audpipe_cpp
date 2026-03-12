@@ -1,3 +1,5 @@
+#ifndef __AUDPIPE_PULSE_CALLBACKS
+#define __AUDPIPE_PULSE_CALLBACKS
 
 #include <memory>
 #include <string>
@@ -25,3 +27,5 @@ void pa_sourcelist_cb(pa_context *c, const pa_source_info *l, int eol,
                       void *userdata);
 
 void pa_state_cb(pa_context *c, void *userdata);
+
+#endif

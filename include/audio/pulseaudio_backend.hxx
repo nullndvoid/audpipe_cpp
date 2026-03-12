@@ -1,3 +1,6 @@
+#ifndef __AUDPIPE_PULSE_BACKEND
+#define __AUDPIPE_PULSE_BACKEND
+
 #include "audio.hxx"
 
 #include <memory>
@@ -21,3 +24,5 @@ private:
   std::shared_ptr<spdlog::logger> logger;
   std::atomic<bool> recording{false};
 };
+
+#endif
