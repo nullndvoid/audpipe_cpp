@@ -1,18 +1,20 @@
 #include <algorithm>
+
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <uvgrtp/lib.hh>
-#include <uvgrtp/util.hh>
 
 #include "audio.hxx"
 #include "rtp.hxx"
+#include "spdlog/common.h"
 
 constexpr uint16_t REMOTE_PORT = 8890;
 constexpr uint16_t LOCAL_PORT = 8891;
 
 int main() {
   auto stderr_log = spdlog::stderr_color_mt("audpipe");
+  stderr_log->set_level(spdlog::level::debug);
 
   auto local_address = std::string("127.0.0.1");
   auto rtp = Rtp(local_address, LOCAL_PORT, REMOTE_PORT, RTP_SEND);
@@ -25,7 +27,7 @@ int main() {
     stderr_log->debug("Received {} bytes of audio data.", len);
   });
 
-  // Find first monitor input.
+  // Find first monitor input. TODO: Config file and setup wizard maybe?
   auto monitor = std::ranges::find_if(
       inputs, [&](AudioDevice &dev) { return dev.is_monitor; });
 

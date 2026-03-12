@@ -146,11 +146,12 @@ private:
     size_t length;
 
     while (pa_stream_peek(s, &data, &length) >= 0) {
+
       if (length == 0)
         break;
 
       if (data == nullptr) {
-        // Hole in the buffer — skip it.
+        // Hole in the buffer, skip it.
         pa_stream_drop(s);
         continue;
       }
@@ -204,10 +205,10 @@ void PulseaudioBackend::record(AudioDevice dev) {
   // Tear down any previous stream before starting a new one.
   destroy_stream();
 
-  static constexpr pa_sample_spec samplespec = {
+  const pa_sample_spec samplespec = {
       .format = PA_SAMPLE_S16LE,
       .rate = 48000,
-      .channels = 2,
+      .channels = dev.channels,
   };
 
   this->stream =
@@ -225,11 +226,18 @@ void PulseaudioBackend::record(AudioDevice dev) {
   pa_stream_set_state_callback(this->stream, stream_state_cb, this);
   pa_stream_set_read_callback(this->stream, stream_read_cb, this);
 
+  // Request ~20ms fragments (one Opus frame worth of S16LE stereo audio).
+  // We expect around 3840 bytes for this. Since fragsize = 20ms * 48000 Hz * 2
+  // channels * 2 bytes/sample = 3840 bytes.
+  pa_buffer_attr bufattr = {};
+  bufattr.maxlength = static_cast<uint32_t>(-1);
+  bufattr.fragsize = pa_usec_to_bytes(20 * PA_USEC_PER_MSEC, &samplespec);
+
   pa_stream_flags_t flags = static_cast<pa_stream_flags_t>(
       PA_STREAM_ADJUST_LATENCY | PA_STREAM_AUTO_TIMING_UPDATE);
 
   int status =
-      pa_stream_connect_record(this->stream, dev.name.c_str(), nullptr, flags);
+      pa_stream_connect_record(this->stream, dev.name.c_str(), &bufattr, flags);
 
   if (status != 0) {
     this->logger->error("Could not record from device \'{}\'.",
