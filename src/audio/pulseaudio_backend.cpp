@@ -5,12 +5,24 @@
 #include <string>
 #include <vector>
 
-// #include "spdlog/logger.h"
 #include <spdlog/spdlog.h>
 
 #include <pulse/pulseaudio.h>
 
 #include "audio.hxx"
+
+typedef struct pa_device_info {
+  std::string name;
+} pa_device_info_t;
+
+typedef struct pa_device_info_userdata {
+  std::vector<AudioDevice> *devices;
+  std::shared_ptr<spdlog::logger> logger;
+} pa_device_info_userdata_t;
+
+void pa_state_cb(pa_context *c, void *userdata);
+void pa_sourcelist_cb(pa_context *c, const pa_source_info *l, int eol,
+                      void *userdata);
 
 class PulseaudioBackend : public AudioBackend {
 public:
@@ -40,7 +52,6 @@ public:
 
     // // Wait until connection is ready.
     int pa_ready = 0;
-
     pa_context_set_state_callback(this->ctx, pa_state_cb, &pa_ready);
 
     while (true) {
@@ -77,64 +88,55 @@ private:
     pa_context_unref(ctx);
     pa_mainloop_free(ml);
   }
-
-  // Many of the `cb` boilerplate callbacks are sourced from
-  // the wonderful Andrew Kelley.
-  //
-  // https://gist.github.com/andrewrk/6470f3786d05999fcb48
-  // TODO: Add debug logging to userdata?
-  static void pa_state_cb(pa_context *c, void *userdata) {
-    int *pa_ready = static_cast<int *>(userdata);
-    auto state = pa_context_get_state(c);
-
-    switch (state) {
-    // Just here for reference.
-    case PA_CONTEXT_UNCONNECTED:
-    case PA_CONTEXT_CONNECTING:
-    case PA_CONTEXT_AUTHORIZING:
-    case PA_CONTEXT_SETTING_NAME:
-    default:
-      break;
-    case PA_CONTEXT_FAILED:
-    case PA_CONTEXT_TERMINATED:
-      *pa_ready = 2;
-      break;
-    case PA_CONTEXT_READY:
-      *pa_ready = 1;
-      break;
-    }
-  }
-
-  typedef struct pa_device_info {
-    std::string name;
-  } pa_device_info_t;
-
-  typedef struct pa_device_info_userdata {
-    std::vector<AudioDevice> *devices;
-    std::shared_ptr<spdlog::logger> logger;
-  } pa_device_info_userdata_t;
-
-  static void pa_sourcelist_cb(pa_context *c, const pa_source_info *l, int eol,
-                               void *userdata) {
-
-    pa_device_info_userdata &data =
-        *reinterpret_cast<pa_device_info_userdata *>(userdata);
-
-    // Reached end of list.
-    if (eol > 0) {
-      return;
-    }
-
-    bool is_monitor = l->monitor_of_sink != PA_INVALID_INDEX;
-    auto device =
-        AudioDevice(std::string(l->name), std::string(l->description), l->index,
-                    l->sample_spec.rate, l->sample_spec.channels, is_monitor);
-
-    data.logger->info("Found device #{} \'{}\' with sample rate {}.",
-                      device.index, device.description, device.sample_rate);
-    data.devices->push_back(device);
-  }
 };
+
+// Many of the `cb` boilerplate callbacks are sourced and adapted from
+// the wonderful Andrew Kelley.
+//
+// https://gist.github.com/andrewrk/6470f3786d05999fcb48
+// TODO: Add debug logging to userdata?
+void pa_state_cb(pa_context *c, void *userdata) {
+  int *pa_ready = static_cast<int *>(userdata);
+  auto state = pa_context_get_state(c);
+
+  switch (state) {
+  // Just here for reference.
+  case PA_CONTEXT_UNCONNECTED:
+  case PA_CONTEXT_CONNECTING:
+  case PA_CONTEXT_AUTHORIZING:
+  case PA_CONTEXT_SETTING_NAME:
+  default:
+    break;
+  case PA_CONTEXT_FAILED:
+  case PA_CONTEXT_TERMINATED:
+    *pa_ready = 2;
+    break;
+  case PA_CONTEXT_READY:
+    *pa_ready = 1;
+    break;
+  }
+}
+
+void pa_sourcelist_cb(pa_context *c, const pa_source_info *l, int eol,
+                      void *userdata) {
+
+  pa_device_info_userdata &data =
+      *reinterpret_cast<pa_device_info_userdata *>(userdata);
+
+  // Reached end of list.
+  if (eol > 0) {
+    return;
+  }
+
+  bool is_monitor = l->monitor_of_sink != PA_INVALID_INDEX;
+  auto device =
+      AudioDevice(std::string(l->name), std::string(l->description), l->index,
+                  l->sample_spec.rate, l->sample_spec.channels, is_monitor);
+
+  data.logger->info("Found device #{} \'{}\' with sample rate {}.",
+                    device.index, device.description, device.sample_rate);
+  data.devices->push_back(device);
+}
 
 std::vector<AudioDevice> PulseaudioBackend::get_inputs() {
   std::vector<AudioDevice> devices;
