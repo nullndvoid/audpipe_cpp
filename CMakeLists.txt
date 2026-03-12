@@ -7,6 +7,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(audpipe src/main.cpp)
 
+if(UNIX AND NOT APPLE)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(PULSE REQUIRED IMPORTED_TARGET libpulse)
+    target_sources(audpipe PRIVATE src/audio/pulseaudio_backend.cpp)
+    target_link_libraries(audpipe PRIVATE PkgConfig::PULSE)
+elseif(WIN32)
+    # TODO:
+    target_sources(audpipe PRIVATE src/audio/wasapi_backend.cpp)
+endif()
+
 include(FetchContent)
 include(ExternalProject)
 
