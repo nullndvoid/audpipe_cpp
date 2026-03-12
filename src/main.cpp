@@ -5,6 +5,7 @@
 #include <uvgrtp/util.hh>
 
 #include "audio.hxx"
+#include "rtp.hxx"
 
 constexpr uint16_t REMOTE_PORT = 8890;
 constexpr uint16_t LOCAL_PORT = 8891;
@@ -12,22 +13,8 @@ constexpr uint16_t LOCAL_PORT = 8891;
 int main() {
   auto stderr_log = spdlog::stderr_color_mt("audpipe");
 
-  uvgrtp::context ctx;
-  uvgrtp::session *sess = ctx.create_session("127.0.0.1");
-
-  if (sess == nullptr) {
-    stderr_log->error("Failed to create uvgRTP session. Must be OOM.");
-    return 1;
-  }
-
-  int flags = RCE_SEND_ONLY;
-  uvgrtp::media_stream *opus_stream =
-      sess->create_stream(LOCAL_PORT, REMOTE_PORT, RTP_FORMAT_OPUS, flags);
-
-  if (opus_stream == nullptr) {
-    stderr_log->error("Failed to create opus stream.");
-    return 1;
-  }
+  auto local_address = std::string("127.0.0.1");
+  auto rtp = Rtp(local_address, LOCAL_PORT, REMOTE_PORT, RTP_SEND);
 
   // We want to get some audio input. For now, accept microphone.
   auto &audio = AudioBackend::instance();
