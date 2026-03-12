@@ -10,7 +10,7 @@ add_executable(audpipe src/main.cpp)
 if(UNIX AND NOT APPLE)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(PULSE REQUIRED IMPORTED_TARGET libpulse)
-    target_sources(audpipe PRIVATE src/audio/pulseaudio_backend.cpp)
+    target_sources(audpipe PRIVATE src/audio/pulseaudio_backend.cpp src/audio/pulseaudio_callbacks.cpp)
     target_link_libraries(audpipe PRIVATE PkgConfig::PULSE)
 elseif(WIN32)
     # TODO:

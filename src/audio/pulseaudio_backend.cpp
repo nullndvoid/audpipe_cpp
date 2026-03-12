@@ -10,7 +10,7 @@
 #include <pulse/pulseaudio.h>
 
 #include "audio.hxx"
-#include "audio/callbacks.hxx"
+#include "audio/pulseaudio_callbacks.hxx"
 
 class PulseaudioBackend : public AudioBackend {
 public:

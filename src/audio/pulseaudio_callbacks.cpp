@@ -1,7 +1,7 @@
 #include <pulse/pulseaudio.h>
 
-#include "audio/callbacks.hxx"
 #include "audio/pulseaudio_backend.hxx"
+#include "audio/pulseaudio_callbacks.hxx"
 
 // Many of the `cb` boilerplate callbacks are sourced and adapted from
 // the wonderful Andrew Kelley.
@@ -70,5 +70,3 @@ void pa_sinklist_cb(pa_context *c, const pa_sink_info *l, int eol,
                     device.index, device.description, device.sample_rate);
   data.devices->push_back(device);
 }
-
-
