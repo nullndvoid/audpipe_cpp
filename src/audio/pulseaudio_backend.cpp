@@ -1,6 +1,9 @@
 #include <cstdlib> // IWYU pragma: keep
 #include <memory>
 #include <pulse/def.h>
+#include <pulse/proplist.h>
+#include <pulse/sample.h>
+#include <pulse/stream.h>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -84,6 +87,8 @@ private:
   pa_mainloop *mainloop;
   pa_mainloop_api *api;
   std::shared_ptr<spdlog::logger> logger;
+
+  void record(AudioDevice dev);
 
   static void cleanup_pulseaudio_data(pa_context *ctx, pa_mainloop *ml) {
     pa_context_disconnect(ctx);
@@ -197,4 +202,31 @@ std::vector<AudioDevice> PulseaudioBackend::get_outputs() {
 AudioBackend &AudioBackend::instance() {
   static PulseaudioBackend backend;
   return backend;
+}
+
+void PulseaudioBackend::record(AudioDevice dev) {
+  // TODO: Check this later.
+  static constexpr pa_sample_spec samplespec = {
+      .format = PA_SAMPLE_S16LE,
+      .rate = 48000,
+      .channels = 2,
+  };
+
+  pa_proplist *p = pa_proplist_new();
+
+  pa_stream *stream = pa_stream_new_with_proplist(this->ctx, "audpipe_input",
+                                                  &samplespec, nullptr, p);
+  if (stream == nullptr) {
+    // Something went wrong. TODO: What?
+  }
+
+  pa_stream_flags_t flags = static_cast<pa_stream_flags_t>(0);
+  int status =
+      pa_stream_connect_record(stream, dev.name.c_str(), nullptr, flags);
+
+  if (status != 0) {
+    // Something went wrong.
+  }
+
+  pa_proplist_free(p);
 }
