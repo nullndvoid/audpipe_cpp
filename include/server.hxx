@@ -1,10 +1,11 @@
 #ifndef __AUDPIPE_SERVER
 #define __AUDPIPE_SERVER
 
-#include "opus.h"
 #include <cstdint>
 #include <memory>
 #include <string>
+
+#include <opus.h>
 
 #include <spdlog/spdlog.h>
 

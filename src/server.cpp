@@ -1,20 +1,17 @@
-#include "server.hxx"
-
-#include <algorithm>
-
 #include <cstdint>
 #include <cstring>
 #include <iostream>
-#include <spdlog/spdlog.h>
 
 #include <utility>
 #include <vector>
 
+#include <spdlog/spdlog.h>
+
 #include "audio.hxx"
 #include "opus.h"
-#include "opus_defines.h"
-#include "opus_types.h"
+
 #include "rtp.hxx"
+#include "server.hxx"
 
 #define OPUS_FRAME_SIZE 3840
 
@@ -57,7 +54,8 @@ Server::Server(std::string local_address, uint16_t local_port,
   int idx = 1;
 
   std::istringstream iss(getline());
-  if (!(iss >> idx) || (iss >> std::ws, !iss.eof())) {
+  if (!(iss >> idx) || (iss >> std::ws, !iss.eof()) || idx <= 0 ||
+      idx > inputs.size()) {
     this->logger->debug("Invalid input, defaulting to 1.");
     idx = 1;
   }
