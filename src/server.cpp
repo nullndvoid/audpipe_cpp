@@ -3,6 +3,8 @@
 #include <algorithm>
 
 #include <cstdint>
+#include <cstring>
+#include <iostream>
 #include <spdlog/spdlog.h>
 
 #include <utility>
@@ -13,6 +15,10 @@
 #include "opus_defines.h"
 #include "opus_types.h"
 #include "rtp.hxx"
+
+#define OPUS_FRAME_SIZE 3840
+
+std::string getline();
 
 Server::Server(std::string local_address, uint16_t local_port,
                uint16_t remote_port)
@@ -30,43 +36,70 @@ Server::Server(std::string local_address, uint16_t local_port,
     throw std::runtime_error(error_msg);
   }
 
+  this->opus_enc_outbuf = std::vector<uint8_t>();
+  this->opus_enc_outbuf.resize(OPUS_FRAME_SIZE);
+  this->opus_enc_outbuf_size = 0;
+
   auto &audio = AudioBackend::instance();
   auto inputs = audio.get_inputs();
 
   audio.set_data_callback([&](const uint8_t *data, size_t len) {
-    // TODO: Encode to Opus and send via RTP.
-    // this->logger->debug("Received {} bytes of audio data.", len);
-    bytes_to_opus(data, len);
+    // TODO: Send via RTP.
+    this->bytes_to_opus(data, len);
   });
 
-  // Find first monitor input. TODO: Config file and setup wizard maybe?
-  auto monitor = std::ranges::find_if(
-      inputs, [&](AudioDevice &dev) { return dev.is_monitor; });
+  for (int i = 0; i < inputs.size(); i++) {
+    std::cout << std::format("{})\t{}", i + 1, inputs.at(i).description)
+              << std::endl;
+  }
 
-  this->logger->info("First monitor device found is \'{}\'.",
-                     monitor->description);
+  std::cout << "Choose a device to record from (1): " << std::flush;
+  int idx = 1;
 
-  audio.record(*monitor.base());
+  std::istringstream iss(getline());
+  if (!(iss >> idx) || (iss >> std::ws, !iss.eof())) {
+    this->logger->debug("Invalid input, defaulting to 1.");
+    idx = 1;
+  }
+
+  AudioDevice dev = inputs.at(idx - 1);
+
+  this->logger->info("Selected device #{} \'{}\'.", idx, dev.description);
+
+  audio.record(dev);
 }
 
+// Source - https://stackoverflow.com/a/546470
+// Posted by Johannes Schaub - litb, modified by community. See post 'Timeline'
+// for change history Retrieved 2026-03-13, License - CC BY-SA 3.0
+std::string getline() {
+  std::string str;
+  std::getline(std::cin, str);
+  return str;
+}
+
+// Populates opus_enc_outbuf.
 void Server::bytes_to_opus(const uint8_t *data, size_t len) {
   //   960 frame size = 20ms at 48kHz. Taken from Opus documentation.
-  std::vector<uint8_t> out;
-  const size_t max_bytes = len * 2; // May want to be 3840.
+  const size_t max_bytes = OPUS_FRAME_SIZE; // May want to be 3840?
 
-  out.reserve(max_bytes);
+  // Clear the outbuf.
+  memset(this->opus_enc_outbuf.data(), 0, this->opus_enc_outbuf.size());
 
   auto res =
       opus_encode(this->opusenc, reinterpret_cast<const opus_int16 *>(data),
-                  960, out.data(), len);
+                  960, this->opus_enc_outbuf.data(), max_bytes);
 
-  // TODO: Recover.
-  if (res != OPUS_OK) {
+  // TODO: Recover from this.
+  if (res < 0) {
     auto error_msg = std::format("Failed to encode opus frame. Reason: {}",
                                  opus_strerror(res));
     this->logger->critical(error_msg);
     throw std::runtime_error(error_msg);
   }
 
-  this->logger->debug("Got opus frame.");
+  // Else we have the size of the output frame. I would rather not reallocate
+  // the block of memory, seems easier to just store pointer and length.
+  this->opus_enc_outbuf_size = res;
+  this->logger->debug("Got opus frame with size {}", res);
 }

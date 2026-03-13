@@ -17,6 +17,9 @@ private:
   std::shared_ptr<spdlog::logger> logger;
   OpusEncoder *opusenc;
 
+  std::vector<uint8_t> opus_enc_outbuf;
+  size_t opus_enc_outbuf_size;
+
   void bytes_to_opus(const uint8_t *data, size_t len);
 };
 
