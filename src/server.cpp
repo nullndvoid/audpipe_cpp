@@ -16,7 +16,7 @@ Server::Server(std::string local_address, uint16_t local_port,
     : local_address(std::move(local_address)) {
   this->logger = spdlog::get("audpipe");
 
-  auto rtp = Rtp(local_address, local_port, remote_port, RTP_SEND);
+  auto rtp = Rtp(this->local_address, local_port, remote_port, RTP_SEND);
 
   auto &audio = AudioBackend::instance();
   auto inputs = audio.get_inputs();
