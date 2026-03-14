@@ -1,11 +1,16 @@
 #include "server.hxx"
+
+#include <cstdint>
+
+#include <format>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <CLI11.hpp>
 
-constexpr uint16_t REMOTE_PORT = 8890;
-constexpr uint16_t LOCAL_PORT = 8891;
+constexpr uint16_t DEFAULT_REMOTE_PORT = 8890;
+constexpr uint16_t DEFAULT_LOCAL_PORT = 8891;
+#define DEFAULT_LOCAL_IP "0.0.0.0"
 
 int main(int argc, char **argv) {
   auto stderr_log = spdlog::stderr_color_mt("audpipe");
@@ -13,8 +18,43 @@ int main(int argc, char **argv) {
 
   CLI::App app("A tool to forward inputs over RTP.", "audpipe");
   argv = app.ensure_utf8(argv);
+  app.config_formatter(std::make_shared<CLI::ConfigTOML>());
+
+  std::string local_ip;
+  app.add_option("-i,--local-ip", local_ip, "Local IP address to bind RTP to.")
+      ->check(CLI::ValidIPV4)
+      ->default_str(DEFAULT_LOCAL_IP);
+
+  uint16_t local_port;
+  uint16_t remote_port;
+
+  app.add_option("-l,--local-port", local_port, "Local port to bind RDP to.")
+      ->check(CLI::Range(1024, 65535))
+      ->default_val(DEFAULT_LOCAL_PORT);
+  app.add_option("-p,--remote-port", remote_port, "Remote port for RDP.")
+      ->check(CLI::Range(1024, 65535))
+      ->default_val(DEFAULT_REMOTE_PORT);
+
+  auto home_dir = std::getenv("HOME");
+  if (home_dir == nullptr) {
+    stderr_log->warn(
+        "Could not get $HOME, config file will not be automatically read from "
+        "\'~/.config/audpipe/audpipe.toml\'.");
+
+    app.set_config("-c,--config");
+  } else {
+    std::string config_path =
+        std::format("{}/.config/audpipe/audpipe.toml", home_dir);
+    app.set_config("-c,--config", config_path, "Read in config, TOML format.")
+        ->transform(CLI::FileOnDefaultPath(config_path));
+  }
+
+  app.get_formatter()->column_width(40);
+  app.get_formatter()->enable_option_type_names(false);
 
   CLI11_PARSE(app, argc, argv);
 
-  // Server serv = Server(std::string("127.0.0.1"), LOCAL_PORT, REMOTE_PORT);
+  stderr_log->info("{} {} {}", local_ip, local_port, remote_port);
+
+  Server serv = Server(local_ip, local_port, remote_port);
 }
