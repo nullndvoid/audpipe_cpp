@@ -70,3 +70,50 @@ void pa_sinklist_cb(pa_context *c, const pa_sink_info *l, int eol,
                     device.index, device.description, device.sample_rate);
   data.devices->push_back(device);
 }
+
+void PulseaudioBackend::stream_state_cb(pa_stream *s, void *userdata) {
+  auto *self = static_cast<PulseaudioBackend *>(userdata);
+  auto state = pa_stream_get_state(s);
+
+  switch (state) {
+  case PA_STREAM_READY:
+    self->logger->info("Recording stream is ready.");
+    break;
+  case PA_STREAM_FAILED:
+    self->logger->error("Recording stream failed: {}.",
+                        pa_strerror(pa_context_errno(self->ctx)));
+    self->recording = false;
+    break;
+  case PA_STREAM_TERMINATED:
+    self->logger->info("Recording stream terminated.");
+    self->recording = false;
+    break;
+  default:
+    break;
+  }
+}
+
+void PulseaudioBackend::stream_read_cb(pa_stream *s, size_t nbytes,
+                                       void *userdata) {
+  auto *self = static_cast<PulseaudioBackend *>(userdata);
+  const void *data;
+  size_t length;
+
+  while (pa_stream_peek(s, &data, &length) >= 0) {
+
+    if (length == 0)
+      break;
+
+    if (data == nullptr) {
+      // Hole in the buffer, skip it.
+      pa_stream_drop(s);
+      continue;
+    }
+
+    if (self->data_callback) {
+      self->data_callback(static_cast<const uint8_t *>(data), length);
+    }
+
+    pa_stream_drop(s);
+  }
+}

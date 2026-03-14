@@ -51,6 +51,9 @@ public:
     data_callback = std::move(cb);
   }
 
+  // Creates a virtual input to be used by applications.
+  virtual void create_virtual_input() = 0;
+
   // Singleton pattern.
   static AudioBackend &instance();
 
