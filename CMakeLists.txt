@@ -21,6 +21,8 @@ include(FetchContent)
 include(ExternalProject)
 
 set(CRYPTOPP_INSTALL_DIR ${CMAKE_BINARY_DIR}/_deps/cryptopp-install)
+set(CRYPTOPP_LIB_PATH ${CRYPTOPP_INSTALL_DIR}/lib/libcryptopp.a)
+set(CRYPTOPP_INCLUDE_PATH ${CRYPTOPP_INSTALL_DIR}/include)
 file(MAKE_DIRECTORY ${CRYPTOPP_INSTALL_DIR}/include)
 file(MAKE_DIRECTORY ${CRYPTOPP_INSTALL_DIR}/lib/pkgconfig)
 
@@ -40,22 +42,28 @@ Cflags: -I\${includedir}
 
 set(ENV{PKG_CONFIG_PATH} "${CRYPTOPP_INSTALL_DIR}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
 
-ExternalProject_Add(cryptopp_ext
-  GIT_REPOSITORY https://github.com/weidai11/cryptopp.git
-  GIT_TAG 843d74c7c97f9e19a615b8ff3c0ca06599ca501b
-  CONFIGURE_COMMAND ""
-  BUILD_IN_SOURCE 1
-  INSTALL_DIR ${CRYPTOPP_INSTALL_DIR}
-  BUILD_COMMAND make static
-  INSTALL_COMMAND make PREFIX=<INSTALL_DIR> install
-)
+if(NOT EXISTS ${CRYPTOPP_LIB_PATH})
+  ExternalProject_Add(cryptopp_ext
+    GIT_REPOSITORY https://github.com/weidai11/cryptopp.git
+    GIT_TAG 843d74c7c97f9e19a615b8ff3c0ca06599ca501b
+    UPDATE_DISCONNECTED TRUE
+    CONFIGURE_COMMAND ""
+    BUILD_IN_SOURCE 1
+    INSTALL_DIR ${CRYPTOPP_INSTALL_DIR}
+    BUILD_COMMAND make static
+    INSTALL_COMMAND make PREFIX=<INSTALL_DIR> install
+    BUILD_BYPRODUCTS ${CRYPTOPP_LIB_PATH}
+  )
+endif()
 
 add_library(cryptopp STATIC IMPORTED GLOBAL)
 set_target_properties(cryptopp PROPERTIES
-  IMPORTED_LOCATION ${CRYPTOPP_INSTALL_DIR}/lib/libcryptopp.a
-  INTERFACE_INCLUDE_DIRECTORIES ${CRYPTOPP_INSTALL_DIR}/include
+  IMPORTED_LOCATION ${CRYPTOPP_LIB_PATH}
+  INTERFACE_INCLUDE_DIRECTORIES ${CRYPTOPP_INCLUDE_PATH}
 )
-add_dependencies(cryptopp cryptopp_ext)
+if(TARGET cryptopp_ext)
+  add_dependencies(cryptopp cryptopp_ext)
+endif()
 
 FetchContent_Declare(
   uvgRTP
@@ -63,6 +71,12 @@ FetchContent_Declare(
   GIT_TAG        540bfdcb5d01c38220aa256fde954f738afe6b3f
   FIND_PACKAGE_ARGS NAMES uvgRTP
 )
+
+# Disable debug printing, maybe set if not using Debug.
+set(UVGRTP_DISABLE_PRINTS ON CACHE BOOL "Disable uvgRTP logging" FORCE)
+set(UVGRTP_DISABLE_EXAMPLES ON CACHE BOOL "Disable uvgRTP examples" FORCE)
+set(UVGRTP_DISABLE_TESTS ON CACHE BOOL "Disable uvgRTP tests" FORCE)
+
 FetchContent_MakeAvailable(uvgRTP)
 
 # Get libopus for encoding.
