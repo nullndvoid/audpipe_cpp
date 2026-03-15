@@ -1,6 +1,7 @@
 #include <pulse/pulseaudio.h>
 
 #include <stdexcept>
+#include <vector>
 
 #include "audio/pulseaudio_backend.hxx"
 #include "audio/pulseaudio_callbacks.hxx"
@@ -99,7 +100,31 @@ void PulseaudioBackend::stream_write_cb(pa_stream *s, size_t nbytes,
                                         void *userdata) {
   auto *self = static_cast<PulseaudioBackend *>(userdata);
 
-  self->logger->debug("Stream writable ({} bytes)", nbytes);
+  if (nbytes == 0) {
+    return;
+  }
+
+  std::vector<uint8_t> pcm(nbytes, 0);
+  size_t produced = 0;
+
+  if (self->write_callback) {
+    produced = self->write_callback(pcm.data(), nbytes);
+    if (produced > nbytes) {
+      produced = nbytes;
+    }
+  }
+
+  int status =
+      pa_stream_write(s, pcm.data(), nbytes, nullptr, 0, PA_SEEK_RELATIVE);
+  if (status != 0) {
+    self->logger->error("pa_stream_write failed: {}",
+                        pa_strerror(pa_context_errno(self->ctx)));
+    self->playback = false;
+    return;
+  }
+
+  self->logger->debug("Stream writable ({} bytes, produced {})", nbytes,
+                      produced);
 };
 
 void PulseaudioBackend::stream_read_cb(pa_stream *s, size_t nbytes,

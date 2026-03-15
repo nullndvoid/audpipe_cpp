@@ -7,6 +7,7 @@
 // This will become a cross platform abstraction layer. Use pulseaudio on Linux,
 // and whatever on earth the Windows API is.
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -14,6 +15,10 @@
 
 // Callback invoked with raw audio data: (data pointer, byte length).
 using AudioDataCallback = std::function<void(const uint8_t *, size_t)>;
+
+// Callback invoked when output stream needs PCM data. Should return bytes
+// written into `dst` (0..max_len).
+using AudioWriteCallback = std::function<size_t(uint8_t *dst, size_t max_len)>;
 
 class AudioDevice {
 public:
@@ -51,6 +56,11 @@ public:
     data_callback = std::move(cb);
   }
 
+  // Set a callback to provide raw PCM audio data during playback.
+  void set_write_callback(AudioWriteCallback cb) {
+    write_callback = std::move(cb);
+  }
+
   // Creates a virtual input to be used by applications.
   virtual void create_virtual_input() = 0;
 
@@ -64,6 +74,7 @@ public:
 protected:
   AudioBackend() = default;
   AudioDataCallback data_callback;
+  AudioWriteCallback write_callback;
 };
 
 #endif
