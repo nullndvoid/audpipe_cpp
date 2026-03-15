@@ -39,8 +39,15 @@ int parse_cli(int argc, char **argv) {
     std::string config_path =
         std::format("{}/.config/audpipe/audpipe.toml", home_dir);
     has_default_config_file = std::filesystem::exists(config_path);
-    app.set_config("-c,--config", config_path, "Read in config, TOML format.")
-        ->transform(CLI::FileOnDefaultPath(config_path));
+    if (has_default_config_file) {
+      app.set_config("-c,--config", config_path, "Read in config, TOML format.")
+          ->transform(CLI::FileOnDefaultPath(config_path));
+    } else {
+      logger->info("Config file is missing, consider re-running with "
+                   "--print-config\nand creating a file in "
+                   "~/.config/audpipe/audpipe.toml");
+      app.set_config("-c,--config", "", "Read in config, TOML format.");
+    }
   }
 
   app.get_formatter()->column_width(40);
