@@ -26,8 +26,11 @@ private:
   pa_stream *stream = nullptr;
   std::shared_ptr<spdlog::logger> logger;
   std::atomic<bool> recording{false};
-  
-  // Used for unloading `module-null-sink` when done with the virtual input. 
+
+  // Used to determine whether `destroy_virtual_input` should be called.
+  bool virtual_sink_loaded{false};
+
+  // Used for unloading `module-null-sink` when done with the virtual input.
   int virtual_sink_mod_idx;
 
   void wait_for_context_ready();
@@ -43,6 +46,10 @@ private:
 
   // Called when data is available to read from the stream.
   static void stream_read_cb(pa_stream *s, size_t nbytes, void *userdata);
+
+  // Called on destructor if the virtual input is loaded. Unloads the null-sink
+  // module.
+  void destroy_virtual_input();
 };
 
 #endif

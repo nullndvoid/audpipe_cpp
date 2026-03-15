@@ -1,5 +1,7 @@
 #include <pulse/pulseaudio.h>
 
+#include <stdexcept>
+
 #include "audio/pulseaudio_backend.hxx"
 #include "audio/pulseaudio_callbacks.hxx"
 
@@ -122,22 +124,28 @@ void pa_load_module_cb(pa_context *c, uint32_t idx, void *userdata) {
   auto *ud = static_cast<pa_module_userdata_t *>(userdata);
   *ud->mod_idx = idx;
 
-  pa_operation *op =
-      pa_context_get_module_info(c, idx, pa_get_module_info_cb, userdata);
+  if (idx == PA_INVALID_INDEX) {
+    ud->logger->error("PulseAudio failed to load module `{}`.",
+                      ud->target_name);
+    return;
+  }
 
-  wait_for_operation(op, ud->ml);
-}
-
-void pa_get_module_info_cb(pa_context *c, const pa_module_info *i, int eol,
-                           void *userdata) {
-  auto *ud = static_cast<pa_module_userdata_t *>(userdata);
-  ud->logger->debug("Loaded pulseaudio module `{}` (index = {})", i->name,
-                    i->index);
+  ud->logger->debug("Loaded PulseAudio module `{}` with index {}.",
+                    ud->target_name, idx);
 }
 
 void wait_for_operation(pa_operation *op, pa_mainloop *ml) {
+  if (op == nullptr) {
+    throw std::runtime_error("PulseAudio did not create an operation.");
+  }
+
   while (pa_operation_get_state(op) == PA_OPERATION_RUNNING) {
     pa_mainloop_iterate(ml, 1, nullptr);
   }
   pa_operation_unref(op);
+}
+
+void pa_ctx_success_cb(pa_context *c, int success, void *userdata) {
+  auto *out = static_cast<success_userdata_t>(userdata);
+  *out = success;
 }

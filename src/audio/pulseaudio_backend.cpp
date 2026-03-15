@@ -37,6 +37,8 @@ PulseaudioBackend::PulseaudioBackend() {
 
 PulseaudioBackend::~PulseaudioBackend() {
   stop_recording();
+  destroy_virtual_input();
+
   pa_context_disconnect(this->ctx);
   pa_context_unref(this->ctx);
   pa_mainloop_free(this->mainloop);
@@ -196,16 +198,55 @@ void PulseaudioBackend::record(AudioDevice dev) {
 void PulseaudioBackend::stop_recording() { this->recording = false; }
 
 void PulseaudioBackend::create_virtual_input() {
+  if (this->virtual_sink_loaded) {
+    this->logger->warn("`create_virtual_input` called twice. You should only "
+                       "need one! Ignoring request.");
+
+    return;
+  }
+
   pa_module_userdata_t ud = {
       .logger = this->logger,
       .mod_idx = &this->virtual_sink_mod_idx,
+      .target_name = "module-null-sink",
       .ml = this->mainloop,
   };
 
-  auto op = pa_context_load_module(this->ctx, "module-null-sink", "ARGS",
+  constexpr auto module_args =
+      "sink_name=audpipe_out "
+      "sink_properties=device.description=Audpipe_Output";
+
+  auto op = pa_context_load_module(this->ctx, "module-null-sink", module_args,
                                    pa_load_module_cb, &ud);
+
+  try {
+    wait_for_operation(op, this->mainloop);
+  } catch (const std::exception &err) {
+    this->logger->error("Could not create virtual input: {}", err.what());
+    throw;
+  }
+
+  if (this->virtual_sink_mod_idx == PA_INVALID_INDEX) {
+    throw std::runtime_error("PulseAudio failed to load module-null-sink.");
+  }
+
+  this->logger->info("Created virtual sink `audpipe_out`; use source "
+                     "`audpipe_out.monitor` as the virtual input.");
+  this->virtual_sink_loaded = true;
+}
+
+void PulseaudioBackend::destroy_virtual_input() {
+  if (!this->virtual_sink_loaded) {
+    return;
+  }
+
+  int success = -1;
+  auto op = pa_context_unload_module(this->ctx, this->virtual_sink_mod_idx,
+                                     pa_ctx_success_cb, &success);
 
   wait_for_operation(op, this->mainloop);
 
-  this->logger->debug("Loaded `module-null-sink`!");
+  if (success == 0) {
+    this->logger->warn("pa_context_unload_module got error code {}", success);
+  }
 }
