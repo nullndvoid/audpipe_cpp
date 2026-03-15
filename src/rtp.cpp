@@ -13,6 +13,8 @@ uvgrtp::context Rtp::ctx;
 Rtp::Rtp(std::string &local_addr, uint16_t local_port, uint16_t remote_port,
          rtp_mode_t mode)
     : mode(mode) {
+  assert(ctx.crypto_enabled());
+
   this->logger = spdlog::get("audpipe");
   this->session = ctx.create_session(local_addr);
 
@@ -37,8 +39,6 @@ Rtp::Rtp(std::string &local_addr, uint16_t local_port, uint16_t remote_port,
     this->logger->critical(error_str);
     throw std::runtime_error(error_str);
   }
-
-  this->logger->info("RTP crypto enabled? {}", ctx.crypto_enabled());
 }
 
 void Rtp::write_frames() {}
