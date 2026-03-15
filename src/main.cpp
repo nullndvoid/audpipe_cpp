@@ -3,6 +3,7 @@
 
 #include <cstdint>
 
+#include <filesystem>
 #include <format>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
@@ -25,6 +26,12 @@ int main(int argc, char **argv) {
   uint16_t local_port;
   uint16_t remote_port;
   bool print_config{false};
+  bool has_default_config_file{false};
+
+  auto *print_config_flag =
+      app.add_flag("--print-config", print_config,
+                   "Print effective config and exit (TOML).");
+  print_config_flag->configurable(false);
 
   auto home_dir = std::getenv("HOME");
   if (home_dir == nullptr) {
@@ -36,6 +43,7 @@ int main(int argc, char **argv) {
   } else {
     std::string config_path =
         std::format("{}/.config/audpipe/audpipe.toml", home_dir);
+    has_default_config_file = std::filesystem::exists(config_path);
     app.set_config("-c,--config", config_path, "Read in config, TOML format.")
         ->transform(CLI::FileOnDefaultPath(config_path));
   }
@@ -44,6 +52,16 @@ int main(int argc, char **argv) {
   app.get_formatter()->enable_option_type_names(false);
   // Ignore extra fields, these could later be parsed as TOML if required.
   app.allow_config_extras(CLI::config_extras_mode::ignore);
+
+  bool cli_selected_client{false};
+  bool cli_selected_server{false};
+  for (int i = 1; i < argc; ++i) {
+    std::string arg = argv[i];
+    if (arg == "client")
+      cli_selected_client = true;
+    else if (arg == "server")
+      cli_selected_server = true;
+  }
 
   auto *client = app.add_subcommand(
       "client", "Client (remote audio stream to virtual input)");
@@ -64,16 +82,16 @@ int main(int argc, char **argv) {
         ->check(CLI::Range(1024, 65535))
         ->default_val(DEFAULT_REMOTE_PORT);
 
-    auto *print_config_flag =
+    auto *sub_print_config_flag =
         sub->add_flag("--print-config", print_config,
                       "Print effective config and exit (TOML).");
-    print_config_flag->configurable(false);
+    sub_print_config_flag->configurable(false);
   };
 
   add_common_opts(client);
   add_common_opts(server);
 
-  app.require_subcommand(1);
+  app.require_subcommand(0, 1);
 
   CLI11_PARSE(app, argc, argv);
 
@@ -82,15 +100,28 @@ int main(int argc, char **argv) {
               << sub->config_to_str(true, desc);
   };
 
-  auto subs = app.get_subcommands();
-
   if (print_config) {
-    for (auto sub : subs) {
-      if (sub->parsed())
-        print_section_config(sub, false);
+    if (auto cfg = std::dynamic_pointer_cast<CLI::ConfigBase>(
+            app.get_config_formatter())) {
+      cfg->commentDefaults(has_default_config_file);
+    }
+
+    if (cli_selected_server) {
+      print_section_config(server, false);
+    } else if (cli_selected_client) {
+      print_section_config(client, false);
+    } else {
+      print_section_config(client, false);
+      std::cout << "\n";
+      print_section_config(server, false);
     }
 
     return 0;
+  }
+
+  if (!cli_selected_server && !cli_selected_client) {
+    std::cout << app.help();
+    return 1;
   }
 
   if (app.got_subcommand(server)) {
