@@ -1,5 +1,4 @@
 #include <atomic>
-#include <cstdlib> // IWYU pragma: keep
 #include <format>
 #include <stdexcept>
 #include <string>
@@ -10,7 +9,6 @@
 #include <pulse/pulseaudio.h>
 
 #include "audio.hxx"
-
 #include "audio/pulseaudio_backend.hxx"
 #include "audio/pulseaudio_callbacks.hxx"
 
@@ -69,14 +67,6 @@ void PulseaudioBackend::wait_for_context_ready() {
   }
 }
 
-// Run the mainloop until a `pa_operation` completes or is cancelled.
-void PulseaudioBackend::wait_for_operation(pa_operation *op) {
-  while (pa_operation_get_state(op) == PA_OPERATION_RUNNING) {
-    pa_mainloop_iterate(this->mainloop, 1, nullptr);
-  }
-  pa_operation_unref(op);
-}
-
 // Block the mainloop until the stream transitions to READY or FAILED.
 void PulseaudioBackend::wait_for_stream_ready(pa_stream *s) {
   pa_stream_state_t state;
@@ -113,7 +103,7 @@ std::vector<AudioDevice> PulseaudioBackend::get_inputs() {
   pa_operation *pa_op =
       pa_context_get_source_info_list(this->ctx, pa_sourcelist_cb, &userdata);
 
-  wait_for_operation(pa_op);
+  wait_for_operation(pa_op, this->mainloop);
 
   return devices;
 }
@@ -126,7 +116,7 @@ std::vector<AudioDevice> PulseaudioBackend::get_outputs() {
   pa_operation *pa_op =
       pa_context_get_sink_info_list(this->ctx, pa_sinklist_cb, &userdata);
 
-  wait_for_operation(pa_op);
+  wait_for_operation(pa_op, this->mainloop);
 
   return devices;
 }
@@ -205,4 +195,8 @@ void PulseaudioBackend::record(AudioDevice dev) {
 
 void PulseaudioBackend::stop_recording() { this->recording = false; }
 
-void PulseaudioBackend::create_virtual_input() {}
+void PulseaudioBackend::create_virtual_input() {
+
+  // pa_context_load_module(this->ctx, "", "", pa_context_index_cb_t cb, void
+  // *userdata);
+}

@@ -29,8 +29,6 @@ private:
 
   void wait_for_context_ready();
 
-  void wait_for_operation(pa_operation *op);
-
   // Block the mainloop until the stream transitions to READY or FAILED.
   void wait_for_stream_ready(pa_stream *s);
 
