@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.10.0)
 project(audpipe VERSION 0.1.0 LANGUAGES C CXX)
 
+# Force uvgRTP to link to crypto++.
+if(POLICY CMP0079)
+  cmake_policy(SET CMP0079 NEW)
+endif()
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -78,6 +83,9 @@ set(UVGRTP_DISABLE_EXAMPLES ON CACHE BOOL "Disable uvgRTP examples" FORCE)
 set(UVGRTP_DISABLE_TESTS ON CACHE BOOL "Disable uvgRTP tests" FORCE)
 
 FetchContent_MakeAvailable(uvgRTP)
+
+target_include_directories(uvgrtp PRIVATE ${CRYPTOPP_INCLUDE_PATH})
+target_link_libraries(uvgrtp PRIVATE cryptopp)
 
 # Get libopus for encoding.
 FetchContent_Declare(
