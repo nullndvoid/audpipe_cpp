@@ -196,7 +196,16 @@ void PulseaudioBackend::record(AudioDevice dev) {
 void PulseaudioBackend::stop_recording() { this->recording = false; }
 
 void PulseaudioBackend::create_virtual_input() {
+  pa_module_userdata_t ud = {
+      .logger = this->logger,
+      .mod_idx = &this->virtual_sink_mod_idx,
+      .ml = this->mainloop,
+  };
 
-  // pa_context_load_module(this->ctx, "", "", pa_context_index_cb_t cb, void
-  // *userdata);
+  auto op = pa_context_load_module(this->ctx, "module-null-sink", "ARGS",
+                                   pa_load_module_cb, &ud);
+
+  wait_for_operation(op, this->mainloop);
+
+  this->logger->debug("Loaded `module-null-sink`!");
 }

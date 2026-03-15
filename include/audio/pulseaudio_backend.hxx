@@ -26,6 +26,9 @@ private:
   pa_stream *stream = nullptr;
   std::shared_ptr<spdlog::logger> logger;
   std::atomic<bool> recording{false};
+  
+  // Used for unloading `module-null-sink` when done with the virtual input. 
+  int virtual_sink_mod_idx;
 
   void wait_for_context_ready();
 
