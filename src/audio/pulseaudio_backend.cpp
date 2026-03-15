@@ -1,9 +1,14 @@
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <csignal>
+#include <cstring>
+#include <fcntl.h>
 #include <format>
 #include <stdexcept>
 #include <string>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 #include <spdlog/spdlog.h>
@@ -25,6 +30,7 @@ PulseaudioBackend::PulseaudioBackend() {
 
   std::signal(SIGINT, handle_shutdown_signal);
   std::signal(SIGTERM, handle_shutdown_signal);
+  std::signal(SIGPIPE, SIG_IGN);
 
   setenv("PULSE_PROP_application.name", "audpipe", 1);
   setenv("PULSE_PROP_application.icon_name", "audpipe", 1);
@@ -218,110 +224,99 @@ void PulseaudioBackend::stop_recording() {
 }
 
 void PulseaudioBackend::create_virtual_input() {
-  if (this->virtual_sink_loaded) {
+  if (this->virtual_source_loaded) {
     this->logger->warn("`create_virtual_input` called twice. You should only "
                        "need one! Ignoring request.");
 
     return;
   }
 
+  ::unlink(this->virtual_source_fifo_path.c_str());
+  if (::mkfifo(this->virtual_source_fifo_path.c_str(), 0600) != 0) {
+    throw std::runtime_error(std::format("Failed to create fifo '{}': {}",
+                                         this->virtual_source_fifo_path,
+                                         std::strerror(errno)));
+  }
+
+  std::string target_name = "module-pipe-source";
+  std::string module_args = std::format(
+      "source_name=audpipe_input file={} format=s16le rate=48000 "
+      "channels=2 source_properties=device.description=audpipe_input",
+      this->virtual_source_fifo_path);
+
   pa_module_userdata_t ud = {
       .logger = this->logger,
-      .mod_idx = &this->virtual_sink_mod_idx,
-      .target_name = "module-null-sink",
+      .mod_idx = &this->virtual_source_mod_idx,
+      .target_name = target_name,
       .ml = this->mainloop,
   };
 
-  constexpr auto module_args =
-      "sink_name=audpipe_out "
-      "sink_properties=device.description=audpipe_output";
-
-  auto op = pa_context_load_module(this->ctx, "module-null-sink", module_args,
-                                   pa_load_module_cb, &ud);
+  auto op = pa_context_load_module(this->ctx, target_name.c_str(),
+                                   module_args.c_str(), pa_load_module_cb, &ud);
 
   try {
     wait_for_operation(op, this->mainloop);
   } catch (const std::exception &err) {
     this->logger->error("Could not create virtual input: {}", err.what());
+    ::unlink(this->virtual_source_fifo_path.c_str());
     throw;
   }
 
-  if (this->virtual_sink_mod_idx == PA_INVALID_INDEX) {
-    throw std::runtime_error("PulseAudio failed to load module-null-sink.");
+  if (this->virtual_source_mod_idx == PA_INVALID_INDEX) {
+    ::unlink(this->virtual_source_fifo_path.c_str());
+    throw std::runtime_error("PulseAudio failed to load module-pipe-source.");
   }
 
-  this->logger->info("Created virtual sink `audpipe_out`; use source "
-                     "`audpipe_out.monitor` as the virtual input.");
-  this->virtual_sink_loaded = true;
+  while (this->virtual_source_fd < 0) {
+    this->virtual_source_fd = ::open(this->virtual_source_fifo_path.c_str(),
+                                     O_WRONLY | O_NONBLOCK | O_CLOEXEC);
 
-  auto outs = this->get_outputs();
-  auto out = std::ranges::find_if(
-      outs, [&](const auto &dev) { return dev.name == "audpipe_out"; });
+    if (this->virtual_source_fd >= 0) {
+      break;
+    }
 
-  if (out == outs.end()) {
-    throw std::runtime_error("Could not find created sink `audpipe_out`.");
+    if (shutdown_requested != 0) {
+      int rollback_success = -1;
+      auto op_unload =
+          pa_context_unload_module(this->ctx, this->virtual_source_mod_idx,
+                                   pa_ctx_success_cb, &rollback_success);
+      if (op_unload != nullptr) {
+        wait_for_operation(op_unload, this->mainloop);
+      }
+      ::unlink(this->virtual_source_fifo_path.c_str());
+      throw std::runtime_error(
+          "Shutdown requested before virtual source was ready.");
+    }
+
+    if (errno != ENXIO && errno != EINTR) {
+      int rollback_success = -1;
+      auto op_unload =
+          pa_context_unload_module(this->ctx, this->virtual_source_mod_idx,
+                                   pa_ctx_success_cb, &rollback_success);
+      if (op_unload != nullptr) {
+        wait_for_operation(op_unload, this->mainloop);
+      }
+      ::unlink(this->virtual_source_fifo_path.c_str());
+      throw std::runtime_error(
+          std::format("Failed to open fifo '{}' for writing: {}",
+                      this->virtual_source_fifo_path, std::strerror(errno)));
+    }
+
+    pa_mainloop_iterate(this->mainloop, 0, nullptr);
+    ::usleep(2000);
   }
 
-  this->create_playback_stream(*out);
-}
-
-void PulseaudioBackend::create_playback_stream(AudioDevice dev) {
-  assert(dev.name == "audpipe_out");
-
-  if (this->stream != nullptr) {
-    destroy_stream();
-  }
-
-  const pa_sample_spec samplespec = {
-      .format = PA_SAMPLE_S16LE,
-      .rate = 48000,
-      .channels = dev.channels,
-  };
-
-  this->stream = pa_stream_new(this->ctx, "audpipe_out", &samplespec, nullptr);
-
-  if (this->stream == nullptr) {
-    this->logger->error("Stream creation failed for device \'{}\'.",
-                        dev.description);
-    throw std::runtime_error(std::format(
-        "Stream creation failed whilst trying to record from device \'{}\'",
-        dev.description));
-  }
-
-  pa_stream_set_state_callback(this->stream, stream_state_cb, this);
-  pa_stream_set_write_callback(this->stream, stream_write_cb, this);
-
-  // We want to playback ~20ms fragments at a time (one Opus frame worth of
-  // S16LE stereo audio). We expect around 3840 bytes for this. Since fragsize =
-  // 20ms * 48000 Hz * 2 channels * 2 bytes/sample = 3840 bytes.
-  pa_buffer_attr bufattr = {};
-  bufattr.maxlength = static_cast<uint32_t>(-1);
-  bufattr.fragsize = pa_usec_to_bytes(20 * PA_USEC_PER_MSEC, &samplespec);
-
-  pa_stream_flags_t flags = static_cast<pa_stream_flags_t>(
-      PA_STREAM_ADJUST_LATENCY | PA_STREAM_AUTO_TIMING_UPDATE);
-
-  int status = pa_stream_connect_playback(this->stream, dev.name.c_str(),
-                                          &bufattr, flags, nullptr, nullptr);
-
-  if (status != 0) {
-    this->logger->error("Could not playback on device \'{}\'.",
-                        dev.description);
-    destroy_stream();
-    throw std::runtime_error(std::format(
-        "Call to pa_stream_connect_playback failed. Could not playback "
-        "from device \'{}\'.",
-        dev.description));
-  }
-
-  wait_for_stream_ready(this->stream);
   this->logger->info(
-      "Virtual microphone \'{0}\' running. Use \'Monitor of {0}\' "
-      "as your input device.",
-      dev.description);
+      "Created virtual source `audpipe_input` via module-pipe-source.");
+  this->virtual_source_loaded = true;
 
-  // Run the mainloop — data arrives via stream_read_cb.
   this->playback = true;
+  std::vector<uint8_t> write_buf(3840, 0);
+
+  this->logger->info(
+      "Virtual microphone `audpipe_input` running. Choose `audpipe_input` "
+      "as your input device.");
+
   while (this->playback) {
     if (shutdown_requested != 0) {
       this->logger->info(
@@ -330,32 +325,89 @@ void PulseaudioBackend::create_playback_stream(AudioDevice dev) {
       break;
     }
 
-    pa_mainloop_iterate(this->mainloop, 1, nullptr);
+    size_t produced = 0;
+    if (this->write_callback) {
+      produced = this->write_callback(write_buf.data(), write_buf.size());
+      if (produced > write_buf.size()) {
+        produced = write_buf.size();
+      }
+    }
+    if (produced < write_buf.size()) {
+      std::fill(write_buf.begin() + static_cast<std::ptrdiff_t>(produced),
+                write_buf.end(), 0);
+    }
+
+    size_t offset = 0;
+    while (offset < write_buf.size()) {
+      ssize_t wrote =
+          ::write(this->virtual_source_fd, write_buf.data() + offset,
+                  write_buf.size() - offset);
+      if (wrote < 0) {
+        if (errno == EINTR) {
+          continue;
+        }
+
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+          if (shutdown_requested != 0) {
+            this->playback = false;
+            break;
+          }
+
+          pa_mainloop_iterate(this->mainloop, 0, nullptr);
+          ::usleep(2000);
+          continue;
+        }
+
+        if (errno == EPIPE) {
+          this->logger->warn(
+              "pipe-source reader disconnected; retrying write loop.");
+          this->playback = false;
+          break;
+        }
+
+        this->logger->error("Failed writing to pipe-source fifo: {}",
+                            std::strerror(errno));
+        this->playback = false;
+        break;
+      }
+      offset += static_cast<size_t>(wrote);
+    }
   }
 
-  destroy_stream();
+  if (this->virtual_source_fd >= 0) {
+    ::close(this->virtual_source_fd);
+    this->virtual_source_fd = -1;
+  }
   this->logger->info("Virtual microphone stopped.");
 }
 
 void PulseaudioBackend::destroy_virtual_input() {
-  if (!this->virtual_sink_loaded ||
-      this->virtual_sink_mod_idx == PA_INVALID_INDEX) {
+  if (this->virtual_source_fd >= 0) {
+    ::close(this->virtual_source_fd);
+    this->virtual_source_fd = -1;
+  }
+
+  if (!this->virtual_source_loaded ||
+      this->virtual_source_mod_idx == PA_INVALID_INDEX) {
+    ::unlink(this->virtual_source_fifo_path.c_str());
     return;
   }
 
   int success = -1;
-  auto op = pa_context_unload_module(this->ctx, this->virtual_sink_mod_idx,
+  auto op = pa_context_unload_module(this->ctx, this->virtual_source_mod_idx,
                                      pa_ctx_success_cb, &success);
 
   wait_for_operation(op, this->mainloop);
 
   if (success == 0) {
     this->logger->warn("pa_context_unload_module got error code {}", success);
+    ::unlink(this->virtual_source_fifo_path.c_str());
     return;
   }
 
-  this->logger->info("Unloaded virtual sink module (index {}).",
-                     this->virtual_sink_mod_idx);
-  this->virtual_sink_loaded = false;
-  this->virtual_sink_mod_idx = PA_INVALID_INDEX;
+  this->logger->info("Unloaded virtual source module (index {}).",
+                     this->virtual_source_mod_idx);
+  this->virtual_source_loaded = false;
+  this->virtual_source_mod_idx = PA_INVALID_INDEX;
+  ::unlink(this->virtual_source_fifo_path.c_str());
 }

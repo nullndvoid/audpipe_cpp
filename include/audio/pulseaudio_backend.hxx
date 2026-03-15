@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 
 #include <spdlog/spdlog.h>
 
@@ -30,10 +31,16 @@ private:
   std::atomic<bool> playback{false};
 
   // Used to determine whether `destroy_virtual_input` should be called.
-  bool virtual_sink_loaded{false};
+  bool virtual_source_loaded{false};
 
-  // Used for unloading `module-null-sink` when done with the virtual input.
-  uint32_t virtual_sink_mod_idx{PA_INVALID_INDEX};
+  // Used for unloading `module-pipe-source` when done with the virtual input.
+  uint32_t virtual_source_mod_idx{PA_INVALID_INDEX};
+
+  // FIFO path used by module-pipe-source.
+  std::string virtual_source_fifo_path{"/tmp/audpipe_input.pcm"};
+
+  // Writer fd for the FIFO.
+  int virtual_source_fd{-1};
 
   void wait_for_context_ready();
 
@@ -55,8 +62,6 @@ private:
   // Called on destructor if the virtual input is loaded. Unloads the null-sink
   // module.
   void destroy_virtual_input();
-
-  void create_playback_stream(AudioDevice dev);
 };
 
 #endif
