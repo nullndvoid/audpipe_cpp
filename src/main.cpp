@@ -21,19 +21,8 @@ int main(int argc, char **argv) {
   app.config_formatter(std::make_shared<CLI::ConfigTOML>());
 
   std::string local_ip;
-  app.add_option("-i,--local-ip", local_ip, "Local IP address to bind RTP to.")
-      ->check(CLI::ValidIPV4)
-      ->default_val(std::string(DEFAULT_LOCAL_IP));
-
   uint16_t local_port;
   uint16_t remote_port;
-
-  app.add_option("-l,--local-port", local_port, "Local port to bind RDP to.")
-      ->check(CLI::Range(1024, 65535))
-      ->default_val(DEFAULT_LOCAL_PORT);
-  app.add_option("-p,--remote-port", remote_port, "Remote port for RDP.")
-      ->check(CLI::Range(1024, 65535))
-      ->default_val(DEFAULT_REMOTE_PORT);
 
   auto home_dir = std::getenv("HOME");
   if (home_dir == nullptr) {
@@ -52,7 +41,28 @@ int main(int argc, char **argv) {
   app.get_formatter()->column_width(40);
   app.get_formatter()->enable_option_type_names(false);
 
-  CLI11_PARSE(app, argc, argv);
+  auto *client = app.add_subcommand(
+      "client", "Client (remote audio stream to virtual input)");
+  auto *server =
+      app.add_subcommand("server", "Server (forwards input to remote client)");
 
-  Server serv = Server(local_ip, local_port, remote_port);
+  auto add_common_opts = [&](CLI::App *sub) {
+    sub->add_option("-i,--local-ip", local_ip,
+                    "Local IP address to bind RTP to.")
+        ->check(CLI::ValidIPV4)
+        ->default_val(std::string(DEFAULT_LOCAL_IP));
+    sub->add_option("-l,--local-port", local_port, "Local port to bind RDP to.")
+        ->check(CLI::Range(1024, 65535))
+        ->default_val(DEFAULT_LOCAL_PORT);
+    sub->add_option("-p,--remote-port", remote_port, "Remote port for RDP.")
+        ->check(CLI::Range(1024, 65535))
+        ->default_val(DEFAULT_REMOTE_PORT);
+  };
+
+  add_common_opts(client);
+  add_common_opts(server);
+
+  app.require_subcommand(1);
+
+  CLI11_PARSE(app, argc, argv);
 }
