@@ -1,6 +1,7 @@
 #ifndef __AUDPIPE_PULSE_CALLBACKS
 #define __AUDPIPE_PULSE_CALLBACKS
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -23,7 +24,7 @@ typedef struct pa_device_info_userdata {
 typedef struct pa_module_userdata {
   std::shared_ptr<spdlog::logger> logger;
   // So we can unload a module later.
-  int *mod_idx;
+  uint32_t *mod_idx;
   // For debugging purposes.
   std::string const &target_name;
   pa_mainloop *ml;

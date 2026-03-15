@@ -79,21 +79,28 @@ void PulseaudioBackend::stream_state_cb(pa_stream *s, void *userdata) {
 
   switch (state) {
   case PA_STREAM_READY:
-    self->logger->info("Recording stream is ready.");
+    self->logger->info("Stream is ready.");
     break;
   case PA_STREAM_FAILED:
-    self->logger->error("Recording stream failed: {}.",
+    self->logger->error("Stream failed: {}.",
                         pa_strerror(pa_context_errno(self->ctx)));
     self->recording = false;
     break;
   case PA_STREAM_TERMINATED:
-    self->logger->info("Recording stream terminated.");
+    self->logger->info("Stream terminated.");
     self->recording = false;
     break;
   default:
     break;
   }
 }
+
+void PulseaudioBackend::stream_write_cb(pa_stream *s, size_t nbytes,
+                                        void *userdata) {
+  auto *self = static_cast<PulseaudioBackend *>(userdata);
+
+  self->logger->debug("Stream writable ({} bytes)", nbytes);
+};
 
 void PulseaudioBackend::stream_read_cb(pa_stream *s, size_t nbytes,
                                        void *userdata) {
@@ -125,8 +132,8 @@ void pa_load_module_cb(pa_context *c, uint32_t idx, void *userdata) {
   *ud->mod_idx = idx;
 
   if (idx == PA_INVALID_INDEX) {
-    ud->logger->error("PulseAudio failed to load module `{}`.",
-                      ud->target_name);
+    ud->logger->error("PulseAudio failed to load module `{}`: {}.",
+                      ud->target_name, pa_strerror(pa_context_errno(c)));
     return;
   }
 

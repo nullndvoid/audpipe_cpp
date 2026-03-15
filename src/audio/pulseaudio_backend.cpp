@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <atomic>
+#include <csignal>
 #include <format>
 #include <stdexcept>
 #include <string>
@@ -12,8 +14,17 @@
 #include "audio/pulseaudio_backend.hxx"
 #include "audio/pulseaudio_callbacks.hxx"
 
+namespace {
+volatile std::sig_atomic_t shutdown_requested = 0;
+
+void handle_shutdown_signal(int) { shutdown_requested = 1; }
+} // namespace
+
 PulseaudioBackend::PulseaudioBackend() {
   this->logger = spdlog::get("audpipe");
+
+  std::signal(SIGINT, handle_shutdown_signal);
+  std::signal(SIGTERM, handle_shutdown_signal);
 
   setenv("PULSE_PROP_application.name", "audpipe", 1);
   setenv("PULSE_PROP_application.icon_name", "audpipe", 1);
@@ -188,6 +199,12 @@ void PulseaudioBackend::record(AudioDevice dev) {
   // Run the mainloop — data arrives via stream_read_cb.
   this->recording = true;
   while (this->recording) {
+    if (shutdown_requested != 0) {
+      this->logger->info("Shutdown signal received; stopping recording.");
+      this->recording = false;
+      break;
+    }
+
     pa_mainloop_iterate(this->mainloop, 1, nullptr);
   }
 
@@ -195,7 +212,10 @@ void PulseaudioBackend::record(AudioDevice dev) {
   this->logger->info("Recording stopped.");
 }
 
-void PulseaudioBackend::stop_recording() { this->recording = false; }
+void PulseaudioBackend::stop_recording() {
+  this->recording = false;
+  this->playback = false;
+}
 
 void PulseaudioBackend::create_virtual_input() {
   if (this->virtual_sink_loaded) {
@@ -214,7 +234,7 @@ void PulseaudioBackend::create_virtual_input() {
 
   constexpr auto module_args =
       "sink_name=audpipe_out "
-      "sink_properties=device.description=Audpipe_Output";
+      "sink_properties=device.description=audpipe_output";
 
   auto op = pa_context_load_module(this->ctx, "module-null-sink", module_args,
                                    pa_load_module_cb, &ud);
@@ -233,10 +253,93 @@ void PulseaudioBackend::create_virtual_input() {
   this->logger->info("Created virtual sink `audpipe_out`; use source "
                      "`audpipe_out.monitor` as the virtual input.");
   this->virtual_sink_loaded = true;
+
+  auto outs = this->get_outputs();
+  auto out = std::ranges::find_if(
+      outs, [&](const auto &dev) { return dev.name == "audpipe_out"; });
+
+  if (out == outs.end()) {
+    throw std::runtime_error("Could not find created sink `audpipe_out`.");
+  }
+
+  this->create_playback_stream(*out);
+}
+
+void PulseaudioBackend::create_playback_stream(AudioDevice dev) {
+  assert(dev.name == "audpipe_out");
+
+  if (this->stream != nullptr) {
+    destroy_stream();
+  }
+
+  const pa_sample_spec samplespec = {
+      .format = PA_SAMPLE_S16LE,
+      .rate = 48000,
+      .channels = dev.channels,
+  };
+
+  this->stream = pa_stream_new(this->ctx, "audpipe_out", &samplespec, nullptr);
+
+  if (this->stream == nullptr) {
+    this->logger->error("Stream creation failed for device \'{}\'.",
+                        dev.description);
+    throw std::runtime_error(std::format(
+        "Stream creation failed whilst trying to record from device \'{}\'",
+        dev.description));
+  }
+
+  pa_stream_set_state_callback(this->stream, stream_state_cb, this);
+  pa_stream_set_write_callback(this->stream, stream_write_cb, this);
+
+  // We want to playback ~20ms fragments at a time (one Opus frame worth of
+  // S16LE stereo audio). We expect around 3840 bytes for this. Since fragsize =
+  // 20ms * 48000 Hz * 2 channels * 2 bytes/sample = 3840 bytes.
+  pa_buffer_attr bufattr = {};
+  bufattr.maxlength = static_cast<uint32_t>(-1);
+  bufattr.fragsize = pa_usec_to_bytes(20 * PA_USEC_PER_MSEC, &samplespec);
+
+  pa_stream_flags_t flags = static_cast<pa_stream_flags_t>(
+      PA_STREAM_ADJUST_LATENCY | PA_STREAM_AUTO_TIMING_UPDATE);
+
+  int status = pa_stream_connect_playback(this->stream, dev.name.c_str(),
+                                          &bufattr, flags, nullptr, nullptr);
+
+  if (status != 0) {
+    this->logger->error("Could not playback on device \'{}\'.",
+                        dev.description);
+    destroy_stream();
+    throw std::runtime_error(std::format(
+        "Call to pa_stream_connect_playback failed. Could not playback "
+        "from device \'{}\'.",
+        dev.description));
+  }
+
+  wait_for_stream_ready(this->stream);
+  this->logger->info(
+      "Virtual microphone \'{0}\' running. Use \'Monitor of {0}\' "
+      "as your input device.",
+      dev.description);
+
+  // Run the mainloop — data arrives via stream_read_cb.
+  this->playback = true;
+  while (this->playback) {
+    if (shutdown_requested != 0) {
+      this->logger->info(
+          "Shutdown signal received; stopping virtual microphone.");
+      this->playback = false;
+      break;
+    }
+
+    pa_mainloop_iterate(this->mainloop, 1, nullptr);
+  }
+
+  destroy_stream();
+  this->logger->info("Virtual microphone stopped.");
 }
 
 void PulseaudioBackend::destroy_virtual_input() {
-  if (!this->virtual_sink_loaded) {
+  if (!this->virtual_sink_loaded ||
+      this->virtual_sink_mod_idx == PA_INVALID_INDEX) {
     return;
   }
 
@@ -248,5 +351,11 @@ void PulseaudioBackend::destroy_virtual_input() {
 
   if (success == 0) {
     this->logger->warn("pa_context_unload_module got error code {}", success);
+    return;
   }
+
+  this->logger->info("Unloaded virtual sink module (index {}).",
+                     this->virtual_sink_mod_idx);
+  this->virtual_sink_loaded = false;
+  this->virtual_sink_mod_idx = PA_INVALID_INDEX;
 }
