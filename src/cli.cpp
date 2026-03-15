@@ -57,20 +57,29 @@ int parse_cli(int argc, char **argv) {
 
   bool cli_selected_client{false};
   bool cli_selected_server{false};
+  bool cli_requested_print_config{false};
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "client")
       cli_selected_client = true;
     else if (arg == "server")
       cli_selected_server = true;
+    else if (arg == "--print-config")
+      cli_requested_print_config = true;
   }
 
   auto *client = app.add_subcommand(
       "client", "Client (remote audio stream to virtual input)");
   auto *server =
       app.add_subcommand("server", "Server (forwards input to remote client)");
-  client->configurable(true);
-  server->configurable(true);
+  auto allow_client_config =
+      cli_selected_client ||
+      (!cli_selected_server && cli_requested_print_config);
+  auto allow_server_config =
+      cli_selected_server ||
+      (!cli_selected_client && cli_requested_print_config);
+  client->configurable(allow_client_config);
+  server->configurable(allow_server_config);
 
   auto add_common_opts = [&](CLI::App *sub) {
     sub->add_option("-i,--local-ip", local_ip,
@@ -126,9 +135,9 @@ int parse_cli(int argc, char **argv) {
     return 1;
   }
 
-  if (app.got_subcommand(server)) {
+  if (cli_selected_server) {
     Server(local_ip, local_port, remote_port);
-  } else if (app.got_subcommand(client)) {
+  } else if (cli_selected_client) {
     Client(local_ip, local_port, remote_port);
   }
 
