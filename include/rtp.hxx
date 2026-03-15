@@ -25,5 +25,8 @@ private:
   rtp_mode_t mode;
 
   std::shared_ptr<spdlog::logger> logger;
+
+  void write_frames();
+  void read_frames();
 };
 #endif
