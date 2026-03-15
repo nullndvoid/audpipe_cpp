@@ -23,7 +23,7 @@ int main(int argc, char **argv) {
   std::string local_ip;
   app.add_option("-i,--local-ip", local_ip, "Local IP address to bind RTP to.")
       ->check(CLI::ValidIPV4)
-      ->default_str(DEFAULT_LOCAL_IP);
+      ->default_val(std::string(DEFAULT_LOCAL_IP));
 
   uint16_t local_port;
   uint16_t remote_port;
@@ -53,8 +53,6 @@ int main(int argc, char **argv) {
   app.get_formatter()->enable_option_type_names(false);
 
   CLI11_PARSE(app, argc, argv);
-
-  stderr_log->info("{} {} {}", local_ip, local_port, remote_port);
 
   Server serv = Server(local_ip, local_port, remote_port);
 }
