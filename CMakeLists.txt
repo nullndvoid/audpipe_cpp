@@ -74,15 +74,17 @@ FetchContent_Declare(
   uvgRTP
   GIT_REPOSITORY https://github.com/ultravideo/uvgRTP.git
   GIT_TAG        540bfdcb5d01c38220aa256fde954f738afe6b3f
-  FIND_PACKAGE_ARGS NAMES uvgRTP
 )
 
-# Disable debug printing, maybe set if not using Debug.
-set(UVGRTP_DISABLE_PRINTS ON CACHE BOOL "Disable uvgRTP logging" FORCE)
+set(UVGRTP_DISABLE_PRINTS OFF CACHE BOOL "Disable uvgRTP logging" FORCE)
 set(UVGRTP_DISABLE_EXAMPLES ON CACHE BOOL "Disable uvgRTP examples" FORCE)
 set(UVGRTP_DISABLE_TESTS ON CACHE BOOL "Disable uvgRTP tests" FORCE)
 
 FetchContent_MakeAvailable(uvgRTP)
+
+target_compile_definitions(uvgrtp PRIVATE
+  $<$<NOT:$<CONFIG:Debug>>:__RTP_SILENT__>
+)
 
 target_include_directories(uvgrtp PRIVATE ${CRYPTOPP_INCLUDE_PATH})
 target_link_libraries(uvgrtp PRIVATE cryptopp)
