@@ -1,6 +1,7 @@
 #ifndef __AUDPIPE_CLIENT
 #define __AUDPIPE_CLIENT
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -9,7 +10,8 @@
 
 class Client {
 public:
-  Client(std::string local_address, uint16_t local_port, uint16_t remote_port);
+  Client(std::pair<std::string, uint16_t> local_socket,
+         std::pair<std::string, uint16_t> remote_socket);
 
 private:
   std::string local_address;

@@ -17,7 +17,8 @@ public:
   // Used by reciever. `cb` is a pair with first argument being a callback with
   // void* to userdata, and the second argument being the pointer passed to the
   // callback. This may be set to nullptr if not in use.
-  Rtp(std::string &local_addr, uint16_t local_port, uint16_t remote_port,
+  Rtp(std::pair<std::string, uint16_t> local_socket,
+      std::pair<std::string, uint16_t> remote_socket,
       // First argument is callback taking `userdata` and recieved frame.
       // Second argument is void* to your `userdata`.
       std::pair<std::function<void(void *, uvgrtp::frame::rtp_frame *)>, void *>
