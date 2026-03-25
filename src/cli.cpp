@@ -18,11 +18,18 @@ int parse_cli(int argc, char **argv) {
   argv = app.ensure_utf8(argv);
   app.config_formatter(std::make_shared<CLI::ConfigTOML>());
 
-  std::string local_ip;
-  std::string remote_ip;
+  std::string client_local_ip;
+  std::string client_remote_ip;
+  uint16_t client_local_port;
+  uint16_t client_remote_port;
 
-  uint16_t local_port;
-  uint16_t remote_port;
+  std::string server_local_ip;
+  std::string server_remote_ip;
+  uint16_t server_local_port;
+  uint16_t server_remote_port;
+  auto server_default_local_port = DEFAULT_REMOTE_PORT;
+  auto server_default_remote_port = DEFAULT_LOCAL_PORT;
+
   bool print_config{false};
   bool has_default_config_file{false};
 
@@ -77,20 +84,26 @@ int parse_cli(int argc, char **argv) {
       app.add_subcommand("server", "Server (forwards input to remote client)");
 
   client
-      ->add_option("-l,--local-port", local_port, "Local port to bind RDP to.")
+      ->add_option("-l,--local-port", client_local_port,
+                   "Local port to bind RDP to.")
       ->check(CLI::Range(1024, 65535))
       ->default_val(DEFAULT_LOCAL_PORT);
-  client->add_option("-p,--remote-port", remote_port, "Remote port for RDP.")
+  client
+      ->add_option("-p,--remote-port", client_remote_port,
+                   "Remote port for RDP.")
       ->check(CLI::Range(1024, 65535))
       ->default_val(DEFAULT_REMOTE_PORT);
 
   server
-      ->add_option("-l,--local-port", local_port, "Local port to bind RDP to.")
+      ->add_option("-l,--local-port", server_local_port,
+                   "Local port to bind RDP to.")
       ->check(CLI::Range(1024, 65535))
-      ->default_val(DEFAULT_REMOTE_PORT);
-  server->add_option("-p,--remote-port", remote_port, "Remote port for RDP.")
+      ->default_val(server_default_local_port);
+  server
+      ->add_option("-p,--remote-port", server_remote_port,
+                   "Remote port for RDP.")
       ->check(CLI::Range(1024, 65535))
-      ->default_val(DEFAULT_LOCAL_PORT);
+      ->default_val(server_default_remote_port);
 
   auto allow_client_config =
       cli_selected_client ||
@@ -101,24 +114,37 @@ int parse_cli(int argc, char **argv) {
   client->configurable(allow_client_config);
   server->configurable(allow_server_config);
 
-  auto add_common_opts = [&](CLI::App *sub) {
-    sub->add_option("-i,--local-ip", local_ip,
-                    "Local IP address to bind RTP to.")
-        ->check(CLI::ValidIPV4)
-        ->default_val(std::string(DEFAULT_LOCAL_IP));
-    sub->add_option("-r,--remote-ip", remote_ip,
-                    "The IP the remote client or server is running on.")
-        ->check(CLI::ValidIPV4)
-        ->required(!cli_requested_print_config);
+  client
+      ->add_option("-i,--local-ip", client_local_ip,
+                   "Local IP address to bind RTP to.")
+      ->check(CLI::ValidIPV4)
+      ->default_val(std::string(DEFAULT_LOCAL_IP));
+  client
+      ->add_option("-r,--remote-ip", client_remote_ip,
+                   "The IP the remote client or server is running on.")
+      ->check(CLI::ValidIPV4)
+      ->required(!cli_requested_print_config);
 
-    auto *sub_print_config_flag =
-        sub->add_flag("--print-config", print_config,
-                      "Print effective config and exit (TOML).");
-    sub_print_config_flag->configurable(false);
-  };
+  auto *client_print_config_flag =
+      client->add_flag("--print-config", print_config,
+                       "Print effective config and exit (TOML).");
+  client_print_config_flag->configurable(false);
 
-  add_common_opts(client);
-  add_common_opts(server);
+  server
+      ->add_option("-i,--local-ip", server_local_ip,
+                   "Local IP address to bind RTP to.")
+      ->check(CLI::ValidIPV4)
+      ->default_val(std::string(DEFAULT_LOCAL_IP));
+  server
+      ->add_option("-r,--remote-ip", server_remote_ip,
+                   "The IP the remote client or server is running on.")
+      ->check(CLI::ValidIPV4)
+      ->required(!cli_requested_print_config);
+
+  auto *server_print_config_flag =
+      server->add_flag("--print-config", print_config,
+                       "Print effective config and exit (TOML).");
+  server_print_config_flag->configurable(false);
 
   app.require_subcommand(0, 1);
 
@@ -153,9 +179,6 @@ int parse_cli(int argc, char **argv) {
     return 1;
   }
 
-  auto local_socket = std::pair(local_ip, local_port);
-  auto remote_socket = std::pair(remote_ip, remote_port);
-
   if (cli_selected_server) {
     // TODO: Get input device from CLI or config.
     auto &audio = AudioBackend::instance();
@@ -164,8 +187,14 @@ int parse_cli(int argc, char **argv) {
 
     logger->info("Selected device \'{}\'.", input.description);
 
+    auto local_socket = std::pair(server_local_ip, server_local_port);
+    auto remote_socket = std::pair(server_remote_ip, server_remote_port);
+
     Server(local_socket, remote_socket, input);
   } else if (cli_selected_client) {
+    auto local_socket = std::pair(client_local_ip, client_local_port);
+    auto remote_socket = std::pair(client_remote_ip, client_remote_port);
+
     Client(local_socket, remote_socket);
   }
 
