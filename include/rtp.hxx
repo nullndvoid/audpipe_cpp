@@ -24,6 +24,9 @@ public:
 
   ~Rtp();
 
+  // TODO: Handle RTCP information for reads and writes internally.
+  void write_frames(uint8_t *data, size_t data_len);
+
 private:
   static uvgrtp::context ctx;
   uvgrtp::session *session;
@@ -37,7 +40,7 @@ private:
   static void init_rtp(Rtp *rtp, bool sending, std::string &local_addr,
                        uint16_t local_port, uint16_t remote_port);
 
-  void write_frames();
+  // TODO: Handle RTCP information for reads and writes.
   void read_frames();
 };
 #endif

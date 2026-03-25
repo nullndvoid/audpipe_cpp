@@ -1,5 +1,4 @@
 #include "rtp.hxx"
-#include "uvgrtp/frame.hh"
 
 #include <cassert>
 #include <cstdint>
@@ -28,10 +27,21 @@ Rtp::Rtp(
     std::string &local_addr, uint16_t local_port, uint16_t remote_port,
     std::pair<std::function<void(void *, uvgrtp::frame::rtp_frame *)>, void *>
         cb) {
+  this->recv_callback = cb;
   init_rtp(this, false, local_addr, local_port, remote_port);
 }
 
-void Rtp::write_frames() {}
+inline void Rtp::write_frames(uint8_t *data, size_t data_len) {
+  rtp_error_t err = this->stream->push_frame(data, data_len, RCC_NO_FLAGS);
+
+  if (err != RTP_OK) {
+    this->logger->error("Failed to write RTP frame with error code: {}",
+                        static_cast<int8_t>(err));
+    // TODO: Check if recoverable at all.
+  }
+
+  this->logger->debug("Wrote frame of length {}", data_len);
+}
 
 void Rtp::init_rtp(Rtp *rtp, bool sending, std::string &local_addr,
                    uint16_t local_port, uint16_t remote_port) {
