@@ -2,7 +2,6 @@
 #define __AUDPIPE_RTP
 
 #include "uvgrtp/lib.hh" // IWYU pragma: keep
-#include <functional>
 #include <spdlog/spdlog.h>
 
 #include <cstdint>
@@ -14,15 +13,16 @@ public:
   Rtp(std::pair<std::string, uint16_t> local_socket,
       std::pair<std::string, uint16_t> remote_socket);
 
+  using recv_hook_t = void (*)(void *, uvgrtp::frame::rtp_frame *);
+
   // Used by reciever. `cb` is a pair with first argument being a callback with
   // void* to userdata, and the second argument being the pointer passed to the
   // callback. This may be set to nullptr if not in use.
   Rtp(std::pair<std::string, uint16_t> local_socket,
       std::pair<std::string, uint16_t> remote_socket,
-      // First argument is callback taking `userdata` and recieved frame.
-      // Second argument is void* to your `userdata`.
-      std::pair<std::function<void(void *, uvgrtp::frame::rtp_frame *)>, void *>
-          cb);
+      std::pair<recv_hook_t, void *> cb);
+
+  std::pair<recv_hook_t, void *> recv_callback = {nullptr, nullptr};
 
   ~Rtp();
 
@@ -34,9 +34,6 @@ private:
   uvgrtp::session *session;
   uvgrtp::media_stream *stream;
 
-  std::pair<std::function<void(void *, uvgrtp::frame::rtp_frame *)>, void *>
-      recv_callback = std::pair(nullptr, nullptr);
-
   std::shared_ptr<spdlog::logger> logger;
 
   static void init_rtp(Rtp *rtp, bool sending, std::string &local_addr,
@@ -45,4 +42,5 @@ private:
   // TODO: Handle RTCP information for reads and writes.
   void read_frames();
 };
+
 #endif

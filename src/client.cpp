@@ -2,13 +2,14 @@
 #include "audio.hxx"
 #include "rtp.hxx"
 
-std::pair<std::function<void(void *, uvgrtp::frame::rtp_frame *)>, void *>
+void Client::recv_callback(void *userdata, uvgrtp::frame::rtp_frame *frame) {
+  auto *self = static_cast<Client *>(userdata);
+  self->logger->debug("Got RTP frame of size {}", frame->dgram_size);
+}
+
+std::pair<Client::recv_hook_t, void *>
 Client::make_recv_callback(Client *self) {
-  return {[](void *userdata, uvgrtp::frame::rtp_frame *frame) {
-            auto *self = static_cast<Client *>(userdata);
-            self->logger->debug("Got RTP frame of size {}", frame->dgram_size);
-          },
-          self};
+  return {&Client::recv_callback, self};
 }
 
 Client::Client(std::pair<std::string, uint16_t> local_socket,

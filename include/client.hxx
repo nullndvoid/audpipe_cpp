@@ -9,6 +9,8 @@
 #include "spdlog/logger.h"
 
 class Client {
+  using recv_hook_t = void (*)(void *, uvgrtp::frame::rtp_frame *);
+
 public:
   Client(std::pair<std::string, uint16_t> local_socket,
          std::pair<std::string, uint16_t> remote_socket);
@@ -18,8 +20,8 @@ private:
   std::shared_ptr<spdlog::logger> logger;
   Rtp rtp;
 
-  std::pair<std::function<void(void *, uvgrtp::frame::rtp_frame *)>, void *>
-  make_recv_callback(Client *self);
+  std::pair<recv_hook_t, void *> make_recv_callback(Client *self);
+  static void recv_callback(void *userdata, uvgrtp::frame::rtp_frame *frame);
 };
 
 #endif

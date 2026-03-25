@@ -27,11 +27,9 @@ Rtp::Rtp(std::pair<std::string, uint16_t> local_socket,
            remote_socket.second);
 }
 
-Rtp::Rtp(
-    std::pair<std::string, uint16_t> local_socket,
-    std::pair<std::string, uint16_t> remote_socket,
-    std::pair<std::function<void(void *, uvgrtp::frame::rtp_frame *)>, void *>
-        cb) {
+Rtp::Rtp(std::pair<std::string, uint16_t> local_socket,
+         std::pair<std::string, uint16_t> remote_socket,
+         std::pair<recv_hook_t, void *> cb) {
   this->recv_callback = cb;
 
   this->session =
@@ -90,10 +88,8 @@ void Rtp::init_rtp(Rtp *rtp, bool sending, std::string &local_addr,
   }
 
   if (!sending) {
-    rtp->stream->install_receive_hook(
-        rtp->recv_callback.second,
-        rtp->recv_callback.first
-            .target<void(void *, uvgrtp::frame::rtp_frame *)>());
+    rtp->stream->install_receive_hook(rtp->recv_callback.second,
+                                      rtp->recv_callback.first);
   }
 }
 
