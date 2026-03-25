@@ -1,5 +1,7 @@
 #include "rtp.hxx"
+#include "uvgrtp/frame.hh"
 
+#include <cassert>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -10,35 +12,71 @@
 
 uvgrtp::context Rtp::ctx;
 
-Rtp::Rtp(std::string &local_addr, uint16_t local_port, uint16_t remote_port,
-         rtp_mode_t mode)
-    : mode(mode) {
+constexpr int DEFAULT_SEND_FLAGS =
+    RCE_RTCP | RCE_SRTP | RCE_SRTP_REPLAY_PROTECTION |
+    RCE_SYSTEM_CALL_CLUSTERING | RCE_SEND_ONLY | RCE_SRTP_KMNGMNT_ZRTP;
+
+constexpr int DEFAULT_RECV_FLAGS = RCE_RTCP | RCE_SRTP |
+                                   RCE_SRTP_REPLAY_PROTECTION |
+                                   RCE_RECEIVE_ONLY | RCE_SRTP_KMNGMNT_ZRTP;
+
+Rtp::Rtp(std::string &local_addr, uint16_t local_port, uint16_t remote_port) {
+  init_rtp(this, true, local_addr, local_port, remote_port);
+}
+
+Rtp::Rtp(
+    std::string &local_addr, uint16_t local_port, uint16_t remote_port,
+    std::pair<std::function<void(void *, uvgrtp::frame::rtp_frame *)>, void *>
+        cb) {
+  init_rtp(this, false, local_addr, local_port, remote_port);
+}
+
+void Rtp::write_frames() {}
+
+void Rtp::init_rtp(Rtp *rtp, bool sending, std::string &local_addr,
+                   uint16_t local_port, uint16_t remote_port) {
   assert(ctx.crypto_enabled());
+  if (!sending) {
+    // Invariant: We want the callback to definitely exist before a
+    // media_stream is created.
+    assert(rtp->recv_callback.first != nullptr);
+  }
 
-  this->logger = spdlog::get("audpipe");
-  this->session = ctx.create_session(local_addr);
+  rtp->logger = spdlog::get("audpipe");
+  rtp->session = ctx.create_session(local_addr);
 
-  if (this->session == nullptr) {
+  if (rtp->session == nullptr) {
     auto error_str = "Failed to create uvgRTP session. Must be OOM.";
-    this->logger->critical(error_str);
+    rtp->logger->critical(error_str);
     throw std::runtime_error(error_str);
   }
 
   int flags;
-  if (this->mode == RTP_SEND) {
-    flags = RCE_SEND_ONLY;
+
+  if (sending) {
+    flags = DEFAULT_SEND_FLAGS;
   } else {
-    flags = RCE_RECEIVE_ONLY;
+    flags = DEFAULT_RECV_FLAGS;
+  };
+
+  rtp->stream = rtp->session->create_stream(local_port, remote_port,
+                                            RTP_FORMAT_OPUS, flags);
+
+  if (rtp->stream == nullptr) {
+    auto error_str = std::format("Failed to create opus RTP stream.");
+    rtp->logger->critical(error_str);
+    throw std::runtime_error(error_str);
   }
 
-  this->stream = this->session->create_stream(local_port, remote_port,
-                                              RTP_FORMAT_OPUS, flags);
-
-  if (this->stream == nullptr) {
-    auto error_str = "Failed to create opus RTP stream.";
-    this->logger->critical(error_str);
-    throw std::runtime_error(error_str);
+  if (!sending) {
+    rtp->stream->install_receive_hook(
+        rtp->recv_callback.second,
+        rtp->recv_callback.first
+            .target<void(void *, uvgrtp::frame::rtp_frame *)>());
   }
 }
 
-void Rtp::write_frames() {}
+Rtp::~Rtp() {
+  this->session->destroy_stream(this->stream);
+  ctx.destroy_session(this->session);
+}

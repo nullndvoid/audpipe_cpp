@@ -10,7 +10,12 @@ Client::Client(std::string local_address, uint16_t local_port,
     : local_address(std::move(local_address)) {
   this->logger = spdlog::get("audpipe");
 
-  auto rtp = Rtp(this->local_address, local_port, remote_port, RTP_RECV);
+  auto read_callback = [&](void *userdata, uvgrtp::frame::rtp_frame *frame) {
+    
+  };
+
+  auto rtp = Rtp(this->local_address, local_port, remote_port,
+                 std::pair(read_callback, nullptr));
 
   auto &audio = AudioBackend::instance();
 

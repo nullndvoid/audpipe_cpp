@@ -22,7 +22,7 @@ Server::Server(std::string local_address, uint16_t local_port,
     : local_address(std::move(local_address)) {
   this->logger = spdlog::get("audpipe");
 
-  auto rtp = Rtp(this->local_address, local_port, remote_port, RTP_SEND);
+  auto rtp = Rtp(this->local_address, local_port, remote_port);
 
   int error = OPUS_OK;
   this->opusenc = opus_encoder_create(48000, 2, OPUS_APPLICATION_VOIP, &error);
