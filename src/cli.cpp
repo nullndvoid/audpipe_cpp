@@ -19,6 +19,11 @@ int parse_cli(int argc, char **argv) {
   app.config_formatter(std::make_shared<CLI::ConfigTOML>());
 
   std::string local_ip;
+  // Only needs to be set when running the server, to tell it what client to
+  // connect to, naturally. Terrible naming skills on my end but I am not used
+  // to writing more P2P style applications.
+  std::string server_remote_ip;
+
   uint16_t local_port;
   uint16_t remote_port;
   bool print_config{false};
@@ -103,6 +108,14 @@ int parse_cli(int argc, char **argv) {
   add_common_opts(client);
   add_common_opts(server);
 
+  if (cli_selected_server) {
+    server
+        ->add_option("-r,--remote-ip", server_remote_ip,
+                     "The IP the client is running on.")
+        ->check(CLI::ValidIPV4)
+        ->required(true);
+  }
+
   app.require_subcommand(0, 1);
 
   CLI11_PARSE(app, argc, argv);
@@ -144,7 +157,10 @@ int parse_cli(int argc, char **argv) {
 
     logger->info("Selected device \'{}\'.", input.description);
 
-    Server(local_ip, local_port, remote_port, input);
+    auto local_socket = std::pair(local_ip, local_port);
+    auto remote_socket = std::pair(server_remote_ip, remote_port);
+
+    Server(local_socket, remote_socket, input);
   } else if (cli_selected_client) {
     Client(local_ip, local_port, remote_port);
   }

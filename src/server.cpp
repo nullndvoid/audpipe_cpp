@@ -17,12 +17,10 @@
 
 std::string getline();
 
-Server::Server(std::string local_address, uint16_t local_port,
-               uint16_t remote_port, AudioDevice dev)
-    : local_address(std::move(local_address)) {
+Server::Server(std::pair<std::string, uint16_t> local_socket,
+               std::pair<std::string, uint16_t> remote_socket, AudioDevice dev)
+    : local_address(local_socket.first), rtp(local_socket, remote_socket) {
   this->logger = spdlog::get("audpipe");
-
-  auto rtp = Rtp(this->local_address, local_port, remote_port);
 
   int error = OPUS_OK;
   this->opusenc = opus_encoder_create(48000, 2, OPUS_APPLICATION_VOIP, &error);
@@ -47,7 +45,7 @@ Server::Server(std::string local_address, uint16_t local_port,
     size_t opus_data_len = this->opus_enc_outbuf_size;
 
     // TODO: Make this check for errors/fail etc. For now just hand it off.
-    rtp.write_frames(opus_data, opus_data_len);
+    this->rtp.write_frames(opus_data, opus_data_len);
   });
 
   audio.record(dev);

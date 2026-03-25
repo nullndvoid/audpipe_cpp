@@ -2,18 +2,17 @@
 #include "audio.hxx"
 #include "rtp.hxx"
 
-#include <cstdint>
-#include <cstring>
-
 Client::Client(std::string local_address, uint16_t local_port,
                uint16_t remote_port)
     : local_address(std::move(local_address)) {
   this->logger = spdlog::get("audpipe");
 
   auto read_callback = [&](void *userdata, uvgrtp::frame::rtp_frame *frame) {
-    
+    this->logger->debug("Got RTP frame of size {}", frame->dgram_size);
   };
 
+  // We recieve only so don't need a remote address. Instead the server connects
+  // to the client. What a confusing nomenclature.
   auto rtp = Rtp(this->local_address, local_port, remote_port,
                  std::pair(read_callback, nullptr));
 

@@ -11,7 +11,8 @@
 class Rtp {
 public:
   // Used by sender.
-  Rtp(std::string &local_addr, uint16_t local_port, uint16_t remote_port);
+  Rtp(std::pair<std::string, uint16_t> local_socket,
+      std::pair<std::string, uint16_t> remote_socket);
 
   // Used by reciever. `cb` is a pair with first argument being a callback with
   // void* to userdata, and the second argument being the pointer passed to the

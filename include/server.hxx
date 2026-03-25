@@ -10,11 +10,12 @@
 #include <spdlog/spdlog.h>
 
 #include "audio.hxx"
+#include "rtp.hxx"
 
 class Server {
 public:
-  Server(std::string local_address, uint16_t local_port, uint16_t remote_port,
-         AudioDevice dev);
+  Server(std::pair<std::string, uint16_t> local_socket,
+         std::pair<std::string, uint16_t> remote_socket, AudioDevice dev);
 
   // Interactively asks the user to choose a device to use. This should likely
   // be replaced with configuration file/CLI arguments.
@@ -27,6 +28,8 @@ private:
 
   std::vector<uint8_t> opus_enc_outbuf;
   size_t opus_enc_outbuf_size;
+
+  Rtp rtp;
 
   void bytes_to_opus(const uint8_t *data, size_t len);
 };

@@ -19,8 +19,13 @@ constexpr int DEFAULT_RECV_FLAGS = RCE_RTCP | RCE_SRTP |
                                    RCE_SRTP_REPLAY_PROTECTION |
                                    RCE_RECEIVE_ONLY | RCE_SRTP_KMNGMNT_ZRTP;
 
-Rtp::Rtp(std::string &local_addr, uint16_t local_port, uint16_t remote_port) {
-  init_rtp(this, true, local_addr, local_port, remote_port);
+// Confusingly the server connects to the client, this is my poor naming.
+Rtp::Rtp(std::pair<std::string, uint16_t> local_socket,
+         std::pair<std::string, uint16_t> remote_socket) {
+  this->session =
+      ctx.create_session(std::pair(local_socket.first, remote_socket.first));
+  init_rtp(this, true, local_socket.first, local_socket.second,
+           remote_socket.second);
 }
 
 Rtp::Rtp(
@@ -28,10 +33,11 @@ Rtp::Rtp(
     std::pair<std::function<void(void *, uvgrtp::frame::rtp_frame *)>, void *>
         cb) {
   this->recv_callback = cb;
+  this->session = ctx.create_session(local_addr);
   init_rtp(this, false, local_addr, local_port, remote_port);
 }
 
-inline void Rtp::write_frames(uint8_t *data, size_t data_len) {
+void Rtp::write_frames(uint8_t *data, size_t data_len) {
   rtp_error_t err = this->stream->push_frame(data, data_len, RCC_NO_FLAGS);
 
   if (err != RTP_OK) {
@@ -53,7 +59,6 @@ void Rtp::init_rtp(Rtp *rtp, bool sending, std::string &local_addr,
   }
 
   rtp->logger = spdlog::get("audpipe");
-  rtp->session = ctx.create_session(local_addr);
 
   if (rtp->session == nullptr) {
     auto error_str = "Failed to create uvgRTP session. Must be OOM.";
