@@ -1,3 +1,4 @@
+#include "audio.hxx"
 #include "client.hxx"
 #include "config.hxx"
 #include "server.hxx"
@@ -136,7 +137,14 @@ int parse_cli(int argc, char **argv) {
   }
 
   if (cli_selected_server) {
-    Server(local_ip, local_port, remote_port);
+    // TODO: Get input device from CLI or config.
+    auto &audio = AudioBackend::instance();
+    auto inputs = audio.get_inputs();
+    auto input = Server::choose_device_interactive(inputs);
+
+    logger->info("Selected device \'{}\'.", input.description);
+
+    Server(local_ip, local_port, remote_port, input);
   } else if (cli_selected_client) {
     Client(local_ip, local_port, remote_port);
   }

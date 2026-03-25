@@ -9,9 +9,16 @@
 
 #include <spdlog/spdlog.h>
 
+#include "audio.hxx"
+
 class Server {
 public:
-  Server(std::string local_address, uint16_t local_port, uint16_t remote_port);
+  Server(std::string local_address, uint16_t local_port, uint16_t remote_port,
+         AudioDevice dev);
+
+  // Interactively asks the user to choose a device to use. This should likely
+  // be replaced with configuration file/CLI arguments.
+  static AudioDevice choose_device_interactive(std::vector<AudioDevice> inputs);
 
 private:
   std::string local_address;

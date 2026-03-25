@@ -18,7 +18,7 @@
 std::string getline();
 
 Server::Server(std::string local_address, uint16_t local_port,
-               uint16_t remote_port)
+               uint16_t remote_port, AudioDevice dev)
     : local_address(std::move(local_address)) {
   this->logger = spdlog::get("audpipe");
 
@@ -41,10 +41,19 @@ Server::Server(std::string local_address, uint16_t local_port,
   auto inputs = audio.get_inputs();
 
   audio.set_data_callback([&](const uint8_t *data, size_t len) {
-    // TODO: Send via RTP.
     this->bytes_to_opus(data, len);
+
+    uint8_t *opus_data = static_cast<uint8_t *>(this->opus_enc_outbuf.data());
+    size_t opus_data_len = this->opus_enc_outbuf_size;
+
+    // TODO: Make this check for errors/fail etc. For now just hand it off.
+    rtp.write_frames(opus_data, opus_data_len);
   });
 
+  audio.record(dev);
+}
+
+AudioDevice Server::choose_device_interactive(std::vector<AudioDevice> inputs) {
   for (int i = 0; i < inputs.size(); i++) {
     std::cout << std::format("{})\t{}", i + 1, inputs.at(i).description)
               << std::endl;
@@ -56,15 +65,15 @@ Server::Server(std::string local_address, uint16_t local_port,
   std::istringstream iss(getline());
   if (!(iss >> idx) || (iss >> std::ws, !iss.eof()) || idx <= 0 ||
       idx > inputs.size()) {
-    this->logger->debug("Invalid input, defaulting to 1.");
+    auto logger = spdlog::get("audpipe");
+    logger->debug("Invalid input, defaulting to 1.");
+
     idx = 1;
   }
 
   AudioDevice dev = inputs.at(idx - 1);
 
-  this->logger->info("Selected device #{} \'{}\'.", idx, dev.description);
-
-  audio.record(dev);
+  return dev;
 }
 
 // Source - https://stackoverflow.com/a/546470
