@@ -12,5 +12,5 @@ Currently only records input on Linux via Pulseaudio but I plan to extend suppor
 - Make a TUI/GUI for controlling the application.
 - Fix timeout issues on initial handshake (orchestration etc)
 - Add Windows support in terms of audio (QUITE IMPORTANT).
-- Cleanup the pulseaudio backend. Code is hot garbage.
+- Cleanup the pulseaudio backend. Code is hot garbage. (Probably just rewrite for Pipewire once other tasks are complete)
 - VOIP chat for fun? Or write like a library and have a different app call helpers.
