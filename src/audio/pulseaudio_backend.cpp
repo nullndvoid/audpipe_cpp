@@ -3,8 +3,10 @@
 #include <cerrno>
 #include <csignal>
 #include <cstring>
+#include <exception>
 #include <fcntl.h>
 #include <format>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <sys/stat.h>
@@ -223,19 +225,55 @@ void PulseaudioBackend::stop_recording() {
   this->playback = false;
 }
 
-void PulseaudioBackend::create_virtual_input() {
+bool PulseaudioBackend::is_virtual_input_ready() const {
+  auto lock = std::scoped_lock(this->virtual_input_state_mutex);
+
+  auto ready = this->virtual_input_state == PulseaudioBackendState::READY &&
+               this->virtual_source_loaded;
+
+  return ready;
+}
+
+std::string PulseaudioBackend::get_virtual_input_error() const {
+  auto lock = std::scoped_lock(this->virtual_input_state_mutex);
+
+  return this->virtual_input_error;
+}
+
+void PulseaudioBackend::setup_virtual_input() {
+
   if (this->virtual_source_loaded) {
-    this->logger->warn("`create_virtual_input` called twice. You should only "
+    this->logger->warn("`PulseaudioBackend::setup_virtual_input` called twice. "
+                       "You should only "
                        "need one! Ignoring request.");
+
+    // Handles the case where state = STOPPED.
+    this->clear_virtual_input_state();
+
+    {
+      auto lock = std::scoped_lock(this->virtual_input_state_mutex);
+      this->virtual_input_state = PulseaudioBackendState::READY;
+    }
 
     return;
   }
 
+  std::string err_msg;
+
+  auto die = [&]() {
+    this->logger->error(err_msg);
+    this->set_virtual_input_error(err_msg);
+    throw std::runtime_error(err_msg);
+  };
+
+  this->clear_virtual_input_state();
+
   ::unlink(this->virtual_source_fifo_path.c_str());
   if (::mkfifo(this->virtual_source_fifo_path.c_str(), 0600) != 0) {
-    throw std::runtime_error(std::format("Failed to create fifo '{}': {}",
-                                         this->virtual_source_fifo_path,
-                                         std::strerror(errno)));
+    err_msg = std::format("Failed to create fifo '{}': {}",
+                          this->virtual_source_fifo_path, std::strerror(errno));
+
+    die();
   }
 
   std::string target_name = "module-pipe-source";
@@ -257,14 +295,15 @@ void PulseaudioBackend::create_virtual_input() {
   try {
     wait_for_operation(op, this->mainloop);
   } catch (const std::exception &err) {
-    this->logger->error("Could not create virtual input: {}", err.what());
+    err_msg = std::format("Could not create virtual input: {}", err.what());
     ::unlink(this->virtual_source_fifo_path.c_str());
-    throw;
+    die();
   }
 
   if (this->virtual_source_mod_idx == PA_INVALID_INDEX) {
+    err_msg = "PulseAudio failed to load module-pipe-source.";
     ::unlink(this->virtual_source_fifo_path.c_str());
-    throw std::runtime_error("PulseAudio failed to load module-pipe-source.");
+    die();
   }
 
   while (this->virtual_source_fd < 0) {
@@ -284,8 +323,9 @@ void PulseaudioBackend::create_virtual_input() {
         wait_for_operation(op_unload, this->mainloop);
       }
       ::unlink(this->virtual_source_fifo_path.c_str());
-      throw std::runtime_error(
-          "Shutdown requested before virtual source was ready.");
+      err_msg = "Shutdown requested before virtual source was ready.";
+
+      die();
     }
 
     if (errno != ENXIO && errno != EINTR) {
@@ -297,21 +337,58 @@ void PulseaudioBackend::create_virtual_input() {
         wait_for_operation(op_unload, this->mainloop);
       }
       ::unlink(this->virtual_source_fifo_path.c_str());
-      throw std::runtime_error(
+      err_msg =
           std::format("Failed to open fifo '{}' for writing: {}",
-                      this->virtual_source_fifo_path, std::strerror(errno)));
+                      this->virtual_source_fifo_path, std::strerror(errno));
+
+      die();
     }
 
     pa_mainloop_iterate(this->mainloop, 0, nullptr);
     ::usleep(2000);
   }
 
-  this->logger->info(
-      "Created virtual source `audpipe_input` via module-pipe-source.");
+  this->logger->info("Created virtual source `audpipe_input` via Pulseaudio "
+                     "(module-pipe-source).");
   this->virtual_source_loaded = true;
 
+  auto lock = std::scoped_lock(this->virtual_input_state_mutex);
+  this->virtual_input_state = PulseaudioBackendState::READY;
+
+  // Just in case.
+  this->virtual_input_failed = false;
+}
+
+void PulseaudioBackend::run_virtual_input() {
+  std::string err_msg;
+
+  auto die = [&]() {
+    this->logger->error(err_msg);
+    this->set_virtual_input_error(err_msg);
+    throw std::runtime_error(err_msg);
+  };
+
+  bool ready = false;
+  std::string prev_error;
+
+  {
+    auto lock = std::scoped_lock(this->virtual_input_state_mutex);
+    ready = (this->virtual_input_state == PulseaudioBackendState::READY);
+    prev_error = this->virtual_input_error;
+  }
+
+  if (!ready) {
+    err_msg = std::format(
+        "Called `PulseaudioBackend::run_virtual_input` "
+        "without checking readiness. Previous error message: \"{}\".",
+        prev_error.size() == 0 ? "(none)" : prev_error);
+    die();
+  }
+
   this->playback = true;
-  std::vector<uint8_t> write_buf(3840, 0);
+
+  constexpr auto PCM_WRITE_BUF_SIZE = 3840;
+  std::vector<uint8_t> write_buf(PCM_WRITE_BUF_SIZE, 0);
 
   this->logger->info(
       "Virtual microphone `audpipe_input` running. Choose `audpipe_input` "
@@ -327,7 +404,19 @@ void PulseaudioBackend::create_virtual_input() {
 
     size_t produced = 0;
     if (this->write_callback) {
-      produced = this->write_callback(write_buf.data(), write_buf.size());
+      try {
+        produced = this->write_callback(write_buf.data(), write_buf.size());
+      } catch (const std::exception &e) {
+        err_msg = std::format("Pulseaudio virtual input write callback threw "
+                              "an exception. Reason: {}",
+                              e.what());
+        die();
+      } catch (...) {
+        err_msg = "Pulseaudio virtual input write callback threw a non-std "
+                  "exception.";
+        die();
+      }
+
       if (produced > write_buf.size()) {
         produced = write_buf.size();
       }
@@ -359,25 +448,32 @@ void PulseaudioBackend::create_virtual_input() {
         }
 
         if (errno == EPIPE) {
-          this->logger->warn(
-              "pipe-source reader disconnected; retrying write loop.");
+          err_msg = "pipe-source reader disconnected, got EPIPE.";
           this->playback = false;
-          break;
+
+          die();
         }
 
-        this->logger->error("Failed writing to pipe-source fifo: {}",
-                            std::strerror(errno));
+        err_msg = std::format("Failed writing to pipe-source fifo: {}",
+                              std::strerror(errno));
         this->playback = false;
-        break;
+
+        die();
       }
       offset += static_cast<size_t>(wrote);
     }
   }
 
-  if (this->virtual_source_fd >= 0) {
-    ::close(this->virtual_source_fd);
-    this->virtual_source_fd = -1;
+  {
+    auto lock = std::scoped_lock(this->virtual_input_state_mutex);
+    this->virtual_input_state = PulseaudioBackendState::STOPPED;
   }
+}
+
+void PulseaudioBackend::create_virtual_input() {
+  this->setup_virtual_input();
+  this->run_virtual_input();
+
   this->logger->info("Virtual microphone stopped.");
 }
 
@@ -396,12 +492,31 @@ void PulseaudioBackend::destroy_virtual_input() {
   int success = -1;
   auto op = pa_context_unload_module(this->ctx, this->virtual_source_mod_idx,
                                      pa_ctx_success_cb, &success);
+  if (op == nullptr) {
+    std::string err_msg = "Unload operation was nullptr!";
+
+    this->logger->critical(err_msg);
+
+    auto lock = std::scoped_lock(this->virtual_input_state_mutex);
+
+    this->virtual_input_state = PulseaudioBackendState::ERROR;
+    this->virtual_input_failed = true;
+    this->virtual_input_error = err_msg;
+
+    return;
+  }
 
   wait_for_operation(op, this->mainloop);
 
   if (success == 0) {
-    this->logger->warn("pa_context_unload_module got error code {}", success);
+    this->logger->warn("pa_context_unload_module got error code {}. You may "
+                       "attempt to setup virtual input again.",
+                       success);
     ::unlink(this->virtual_source_fifo_path.c_str());
+
+    this->virtual_source_loaded = false;
+    this->virtual_source_mod_idx = PA_INVALID_INDEX;
+
     return;
   }
 
@@ -410,4 +525,33 @@ void PulseaudioBackend::destroy_virtual_input() {
   this->virtual_source_loaded = false;
   this->virtual_source_mod_idx = PA_INVALID_INDEX;
   ::unlink(this->virtual_source_fifo_path.c_str());
+}
+
+void PulseaudioBackend::set_virtual_input_error(const std::string &msg) {
+  {
+    auto lock = std::scoped_lock(this->virtual_input_state_mutex);
+
+    if (this->virtual_input_state == PulseaudioBackendState::ERROR) {
+      return;
+    } else if (this->virtual_input_state == PulseaudioBackendState::READY) {
+      this->playback = false;
+    }
+
+    this->virtual_input_state = PulseaudioBackendState::ERROR;
+    this->virtual_input_error = msg;
+  }
+
+  this->virtual_input_failed = true;
+}
+
+// Called if we ever implement restarts etc.
+void PulseaudioBackend::clear_virtual_input_state() {
+  {
+    auto lock = std::scoped_lock(this->virtual_input_state_mutex);
+
+    this->virtual_input_state = PulseaudioBackendState::SETUP;
+    this->virtual_input_error = std::string("");
+  }
+
+  this->virtual_input_failed = false;
 }

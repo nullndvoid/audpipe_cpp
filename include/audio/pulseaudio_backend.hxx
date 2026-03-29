@@ -5,11 +5,14 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include <spdlog/spdlog.h>
 
 #include <pulse/pulseaudio.h>
+
+enum class PulseaudioBackendState { SETUP, READY, ERROR, STOPPED };
 
 class PulseaudioBackend : public AudioBackend {
 public:
@@ -19,6 +22,11 @@ public:
   std::vector<AudioDevice> get_outputs() override;
   void record(AudioDevice dev) override;
   void stop_recording() override;
+
+  void setup_virtual_input() override;
+  void run_virtual_input() override;
+  bool is_virtual_input_ready() const override;
+  std::string get_virtual_input_error() const override;
   void create_virtual_input() override;
 
 private:
@@ -31,7 +39,14 @@ private:
   std::atomic<bool> playback{false};
 
   // Used to determine whether `destroy_virtual_input` should be called.
-  bool virtual_source_loaded{false};
+  std::atomic<bool> virtual_source_loaded{false};
+  // Set on errors. The error string should be set for debugging etc.
+  std::atomic<bool> virtual_input_failed{false};
+
+  std::string virtual_input_error;
+
+  mutable std::mutex virtual_input_state_mutex;
+  PulseaudioBackendState virtual_input_state = PulseaudioBackendState::SETUP;
 
   // Used for unloading `module-pipe-source` when done with the virtual input.
   uint32_t virtual_source_mod_idx{PA_INVALID_INDEX};
@@ -62,6 +77,9 @@ private:
   // Called on destructor if the virtual input is loaded. Unloads the null-sink
   // module.
   void destroy_virtual_input();
+
+  void set_virtual_input_error(const std::string &msg);
+  void clear_virtual_input_state();
 };
 
 #endif
