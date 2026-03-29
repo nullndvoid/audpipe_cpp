@@ -13,11 +13,19 @@ public:
   Rtp(std::pair<std::string, uint16_t> local_socket,
       std::pair<std::string, uint16_t> remote_socket);
 
+  // NOTE: The hook should not be used for extensive media processing. It is
+  // meant to be used as an interface between application and library where
+  // uvgRTP hands off the RTP frames to an application thread.
   using recv_hook_t = void (*)(void *, uvgrtp::frame::rtp_frame *);
 
   // Used by reciever. `cb` is a pair with first argument being a callback with
   // void* to userdata, and the second argument being the pointer passed to the
   // callback. This may be set to nullptr if not in use.
+  //
+  // NOTE: The hook should not be used for extensive media processing. It is
+  // meant to be used as an interface between application and library where
+  // uvgRTP hands off the RTP frames to an application thread.
+  //
   Rtp(std::pair<std::string, uint16_t> local_socket,
       std::pair<std::string, uint16_t> remote_socket,
       std::pair<recv_hook_t, void *> cb);
