@@ -65,6 +65,11 @@ public:
   // Backward-compatible convenience API (can call setup + run).
   virtual void create_virtual_input() = 0;
 
+  // Explicit teardown for repeatable setup-run-destroy cycles.
+  // Implementations should be safe to call when already torn down.
+  // Implementations may throw if teardown fails.
+  virtual void destroy_virtual_input() = 0;
+
   // Setup only. Validates readiness.
   virtual void setup_virtual_input() = 0;
 
