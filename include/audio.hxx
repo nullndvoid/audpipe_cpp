@@ -62,7 +62,20 @@ public:
   }
 
   // Creates a virtual input to be used by applications.
+  // Backward-compatible convenience API (can call setup + run).
   virtual void create_virtual_input() = 0;
+
+  // Setup only. Validates readiness.
+  virtual void setup_virtual_input() = 0;
+
+  // Run only. Blocking loop that feeds PCM into the virtual input.
+  virtual void run_virtual_input() = 0;
+
+  // Query whether setup completed successfully.
+  virtual bool is_virtual_input_ready() const = 0;
+
+  // Optional diagnostic string for setup/runtime failure.
+  virtual std::string get_virtual_input_error() const = 0;
 
   // Singleton pattern.
   static AudioBackend &instance();

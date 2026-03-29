@@ -56,7 +56,19 @@ PulseaudioBackend::PulseaudioBackend() {
 
 PulseaudioBackend::~PulseaudioBackend() {
   stop_recording();
-  destroy_virtual_input();
+  try {
+    destroy_virtual_input();
+  } catch (const std::exception &e) {
+    if (this->logger) {
+      this->logger->critical(
+          "destroy_virtual_input failed during backend shutdown: {}", e.what());
+    }
+  } catch (...) {
+    if (this->logger) {
+      this->logger->critical("destroy_virtual_input failed during backend "
+                             "shutdown with non-std exception.");
+    }
+  }
 
   pa_context_disconnect(this->ctx);
   pa_context_unref(this->ctx);
@@ -229,7 +241,7 @@ bool PulseaudioBackend::is_virtual_input_ready() const {
   auto lock = std::scoped_lock(this->virtual_input_state_mutex);
 
   auto ready = this->virtual_input_state == PulseaudioBackendState::READY &&
-               this->virtual_source_loaded;
+               this->virtual_source_loaded && this->virtual_source_fd >= 0;
 
   return ready;
 }
@@ -246,6 +258,17 @@ void PulseaudioBackend::setup_virtual_input() {
     this->logger->warn("`PulseaudioBackend::setup_virtual_input` called twice. "
                        "You should only "
                        "need one! Ignoring request.");
+
+    bool stopped = false;
+
+    {
+      auto lock = std::scoped_lock(this->virtual_input_state_mutex);
+      stopped = this->virtual_input_state == PulseaudioBackendState::STOPPED;
+    }
+
+    if (!stopped) {
+      return;
+    }
 
     // Handles the case where state = STOPPED.
     this->clear_virtual_input_state();
@@ -368,19 +391,28 @@ void PulseaudioBackend::run_virtual_input() {
     throw std::runtime_error(err_msg);
   };
 
+  bool state_ready = false;
+  bool loaded = false;
+  bool has_fd = false;
   bool ready = false;
   std::string prev_error;
 
   {
     auto lock = std::scoped_lock(this->virtual_input_state_mutex);
-    ready = (this->virtual_input_state == PulseaudioBackendState::READY);
+    state_ready = (this->virtual_input_state == PulseaudioBackendState::READY);
     prev_error = this->virtual_input_error;
   }
+
+  loaded = this->virtual_source_loaded;
+  has_fd = (this->virtual_source_fd >= 0);
+  ready = state_ready && loaded && has_fd;
 
   if (!ready) {
     err_msg = std::format(
         "Called `PulseaudioBackend::run_virtual_input` "
-        "without checking readiness. Previous error message: \"{}\".",
+        "without checking readiness (state_ready={}, loaded={}, has_fd={}). "
+        "Previous error message: \"{}\".",
+        state_ready, loaded, has_fd,
         prev_error.size() == 0 ? "(none)" : prev_error);
     die();
   }
@@ -493,31 +525,25 @@ void PulseaudioBackend::destroy_virtual_input() {
   auto op = pa_context_unload_module(this->ctx, this->virtual_source_mod_idx,
                                      pa_ctx_success_cb, &success);
   if (op == nullptr) {
-    std::string err_msg = "Unload operation was nullptr!";
+    std::string err_msg =
+        "PulseAudio unload operation returned nullptr; refusing to continue.";
 
     this->logger->critical(err_msg);
-
-    auto lock = std::scoped_lock(this->virtual_input_state_mutex);
-
-    this->virtual_input_state = PulseaudioBackendState::ERROR;
-    this->virtual_input_failed = true;
-    this->virtual_input_error = err_msg;
-
-    return;
+    this->set_virtual_input_error(err_msg);
+    throw std::runtime_error(err_msg);
   }
 
   wait_for_operation(op, this->mainloop);
 
   if (success == 0) {
-    this->logger->warn("pa_context_unload_module got error code {}. You may "
-                       "attempt to setup virtual input again.",
-                       success);
-    ::unlink(this->virtual_source_fifo_path.c_str());
+    std::string err_msg = std::format(
+        "pa_context_unload_module failed (success={}); backend is in "
+        "unrecoverable ERROR state until process restart.",
+        success);
 
-    this->virtual_source_loaded = false;
-    this->virtual_source_mod_idx = PA_INVALID_INDEX;
-
-    return;
+    this->logger->critical(err_msg);
+    this->set_virtual_input_error(err_msg);
+    throw std::runtime_error(err_msg);
   }
 
   this->logger->info("Unloaded virtual source module (index {}).",
@@ -525,6 +551,13 @@ void PulseaudioBackend::destroy_virtual_input() {
   this->virtual_source_loaded = false;
   this->virtual_source_mod_idx = PA_INVALID_INDEX;
   ::unlink(this->virtual_source_fifo_path.c_str());
+
+  {
+    auto lock = std::scoped_lock(this->virtual_input_state_mutex);
+    this->virtual_input_state = PulseaudioBackendState::STOPPED;
+    this->virtual_input_error.clear();
+  }
+  this->virtual_input_failed = false;
 }
 
 void PulseaudioBackend::set_virtual_input_error(const std::string &msg) {

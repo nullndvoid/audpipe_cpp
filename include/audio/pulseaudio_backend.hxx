@@ -28,6 +28,12 @@ public:
   bool is_virtual_input_ready() const override;
   std::string get_virtual_input_error() const override;
   void create_virtual_input() override;
+  // Explicitly unload the module-pipe-source virtual input.
+  // Safe to call when already torn down.
+  // Throws std::runtime_error on unload failure so callers can fail fast.
+  // The destructor also calls this, but explicit calls are preferred when
+  // errors must be observed by the caller.
+  void destroy_virtual_input() override;
 
 private:
   pa_context *ctx;
@@ -73,10 +79,6 @@ private:
 
   // Called when data is available to write to the stream.
   static void stream_write_cb(pa_stream *s, size_t nbytes, void *userdata);
-
-  // Called on destructor if the virtual input is loaded. Unloads the null-sink
-  // module.
-  void destroy_virtual_input();
 
   void set_virtual_input_error(const std::string &msg);
   void clear_virtual_input_state();
