@@ -1,0 +1,9 @@
+# Example configuration file for audpipe. Use whatever TOML syntax you like.
+
+[client]
+ip = "127.0.0.1"
+port = 7981
+
+[server]
+ip = "100.123.32.1"
+port = 8179

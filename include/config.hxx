@@ -12,23 +12,24 @@
 #define DEFAULT_LOCAL_PORT 8891
 #define DEFAULT_LOCAL_IP "127.0.0.1"
 
+enum class Mode { CLIENT, SERVER };
+
 class Config {
 public:
   // Default behaviour should be to pass cwd/audpipe.toml. If this is empty we
   // can find ~/.config/audpipe/audpipe.toml.
   //
   // Should make some public static helper methods to get the paths as needed.
-  Config(const std::string &cfg_path);
+  Config(const std::string &cfg_path, Mode mode);
 
   static std::optional<std::string> get_user_config_path();
 
-private:
-  std::string config_path;
-  std::string local_ip = DEFAULT_LOCAL_IP;
-  std::string remote_ip = DEFAULT_LOCAL_IP;
-  uint16_t remote_port = DEFAULT_REMOTE_PORT;
-  uint16_t local_port = DEFAULT_LOCAL_PORT;
+  std::string local_ip;
+  std::string remote_ip;
+  uint16_t remote_port;
+  uint16_t local_port;
 
+private:
   static std::string file_to_str(const std::filesystem::path &path);
 };
 
