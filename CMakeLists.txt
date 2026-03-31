@@ -10,7 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(audpipe src/main.cpp src/rtp.cpp src/server.cpp src/client.cpp src/cli.cpp)
+add_executable(audpipe src/main.cpp src/rtp.cpp src/server.cpp src/client.cpp src/cli.cpp src/config.cpp)
 
 if(UNIX AND NOT APPLE)
     find_package(PkgConfig REQUIRED)
@@ -46,6 +46,14 @@ Cflags: -I\${includedir}
 ")
 
 set(ENV{PKG_CONFIG_PATH} "${CRYPTOPP_INSTALL_DIR}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+
+include(FetchContent)
+FetchContent_Declare(
+    tomlplusplus
+    GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+    GIT_TAG v3.4.0
+)
+FetchContent_MakeAvailable(tomlplusplus)
 
 if(NOT EXISTS ${CRYPTOPP_LIB_PATH})
   ExternalProject_Add(cryptopp_ext
@@ -108,5 +116,5 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spdlog)
 
-target_link_libraries(audpipe PRIVATE cryptopp uvgrtp opus spdlog::spdlog $<$<BOOL:${MINGW}>:ws2_32>)
+target_link_libraries(audpipe PRIVATE cryptopp uvgrtp opus spdlog::spdlog $<$<BOOL:${MINGW}>:ws2_32> tomlplusplus::tomlplusplus)
 target_include_directories(audpipe PUBLIC include)
