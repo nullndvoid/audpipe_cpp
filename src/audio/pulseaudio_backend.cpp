@@ -6,7 +6,6 @@
 #include <exception>
 #include <fcntl.h>
 #include <format>
-#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <sys/stat.h>
@@ -238,17 +237,11 @@ void PulseaudioBackend::stop_recording() {
 }
 
 bool PulseaudioBackend::is_virtual_input_ready() const {
-  auto lock = std::scoped_lock(this->virtual_input_state_mutex);
-
-  auto ready = this->virtual_input_state == PulseaudioBackendState::READY &&
-               this->virtual_source_loaded && this->virtual_source_fd >= 0;
-
-  return ready;
+  return this->virtual_source_loaded && this->virtual_source_fd >= 0 &&
+         this->virtual_input_error.empty();
 }
 
 std::string PulseaudioBackend::get_virtual_input_error() const {
-  auto lock = std::scoped_lock(this->virtual_input_state_mutex);
-
   return this->virtual_input_error;
 }
 
@@ -258,26 +251,6 @@ void PulseaudioBackend::setup_virtual_input() {
     this->logger->warn("`PulseaudioBackend::setup_virtual_input` called twice. "
                        "You should only "
                        "need one! Ignoring request.");
-
-    bool stopped = false;
-
-    {
-      auto lock = std::scoped_lock(this->virtual_input_state_mutex);
-      stopped = this->virtual_input_state == PulseaudioBackendState::STOPPED;
-    }
-
-    if (!stopped) {
-      return;
-    }
-
-    // Handles the case where state = STOPPED.
-    this->clear_virtual_input_state();
-
-    {
-      auto lock = std::scoped_lock(this->virtual_input_state_mutex);
-      this->virtual_input_state = PulseaudioBackendState::READY;
-    }
-
     return;
   }
 
@@ -289,7 +262,7 @@ void PulseaudioBackend::setup_virtual_input() {
     throw std::runtime_error(err_msg);
   };
 
-  this->clear_virtual_input_state();
+  this->virtual_input_error.clear();
 
   ::unlink(this->virtual_source_fifo_path.c_str());
   if (::mkfifo(this->virtual_source_fifo_path.c_str(), 0600) != 0) {
@@ -374,12 +347,6 @@ void PulseaudioBackend::setup_virtual_input() {
   this->logger->info("Created virtual source `audpipe_input` via Pulseaudio "
                      "(module-pipe-source).");
   this->virtual_source_loaded = true;
-
-  auto lock = std::scoped_lock(this->virtual_input_state_mutex);
-  this->virtual_input_state = PulseaudioBackendState::READY;
-
-  // Just in case.
-  this->virtual_input_failed = false;
 }
 
 void PulseaudioBackend::run_virtual_input() {
@@ -391,29 +358,19 @@ void PulseaudioBackend::run_virtual_input() {
     throw std::runtime_error(err_msg);
   };
 
-  bool state_ready = false;
-  bool loaded = false;
-  bool has_fd = false;
-  bool ready = false;
-  std::string prev_error;
-
-  {
-    auto lock = std::scoped_lock(this->virtual_input_state_mutex);
-    state_ready = (this->virtual_input_state == PulseaudioBackendState::READY);
-    prev_error = this->virtual_input_error;
-  }
-
-  loaded = this->virtual_source_loaded;
-  has_fd = (this->virtual_source_fd >= 0);
-  ready = state_ready && loaded && has_fd;
+  bool loaded = this->virtual_source_loaded;
+  bool has_fd = (this->virtual_source_fd >= 0);
+  bool no_error = this->virtual_input_error.empty();
+  bool ready = loaded && has_fd && no_error;
 
   if (!ready) {
     err_msg = std::format(
         "Called `PulseaudioBackend::run_virtual_input` "
-        "without checking readiness (state_ready={}, loaded={}, has_fd={}). "
+        "without checking readiness (loaded={}, has_fd={}, no_error={}). "
         "Previous error message: \"{}\".",
-        state_ready, loaded, has_fd,
-        prev_error.size() == 0 ? "(none)" : prev_error);
+        loaded, has_fd, no_error,
+        this->virtual_input_error.size() == 0 ? "(none)"
+                                              : this->virtual_input_error);
     die();
   }
 
@@ -495,11 +452,6 @@ void PulseaudioBackend::run_virtual_input() {
       offset += static_cast<size_t>(wrote);
     }
   }
-
-  {
-    auto lock = std::scoped_lock(this->virtual_input_state_mutex);
-    this->virtual_input_state = PulseaudioBackendState::STOPPED;
-  }
 }
 
 void PulseaudioBackend::create_virtual_input() {
@@ -552,39 +504,10 @@ void PulseaudioBackend::destroy_virtual_input() {
   this->virtual_source_mod_idx = PA_INVALID_INDEX;
   ::unlink(this->virtual_source_fifo_path.c_str());
 
-  {
-    auto lock = std::scoped_lock(this->virtual_input_state_mutex);
-    this->virtual_input_state = PulseaudioBackendState::STOPPED;
-    this->virtual_input_error.clear();
-  }
-  this->virtual_input_failed = false;
+  this->virtual_input_error.clear();
 }
 
 void PulseaudioBackend::set_virtual_input_error(const std::string &msg) {
-  {
-    auto lock = std::scoped_lock(this->virtual_input_state_mutex);
-
-    if (this->virtual_input_state == PulseaudioBackendState::ERROR) {
-      return;
-    } else if (this->virtual_input_state == PulseaudioBackendState::READY) {
-      this->playback = false;
-    }
-
-    this->virtual_input_state = PulseaudioBackendState::ERROR;
-    this->virtual_input_error = msg;
-  }
-
-  this->virtual_input_failed = true;
-}
-
-// Called if we ever implement restarts etc.
-void PulseaudioBackend::clear_virtual_input_state() {
-  {
-    auto lock = std::scoped_lock(this->virtual_input_state_mutex);
-
-    this->virtual_input_state = PulseaudioBackendState::SETUP;
-    this->virtual_input_error = std::string("");
-  }
-
-  this->virtual_input_failed = false;
+  this->playback = false;
+  this->virtual_input_error = msg;
 }
