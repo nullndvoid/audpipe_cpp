@@ -205,6 +205,61 @@ Config::Config(const std::string &cfg_path, Mode mode) {
     die();
   }
   this->local_port = validate_port(local_port.value());
+
+  // Parse optional connection policy section with sensible defaults.
+  auto connection_table = table["net"];
+  if (connection_table && connection_table.is_table()) {
+    auto connect_timeout =
+        connection_table["connect_timeout_ms"].value_exact<int64_t>();
+    if (connect_timeout.has_value()) {
+      this->connection.connect_timeout_ms =
+          static_cast<uint32_t>(connect_timeout.value());
+    }
+
+    auto handshake_timeout =
+        connection_table["handshake_timeout_ms"].value_exact<int64_t>();
+    if (handshake_timeout.has_value()) {
+      this->connection.handshake_timeout_ms =
+          static_cast<uint32_t>(handshake_timeout.value());
+    }
+
+    auto max_retries = connection_table["max_retries"].value_exact<int64_t>();
+    if (max_retries.has_value()) {
+      this->connection.max_retries = static_cast<uint16_t>(max_retries.value());
+      if (this->connection.max_retries == 0) {
+        err_msg = "Key `net.max_retries` should be at least 1.";
+        die();
+      }
+    }
+
+    auto retry_backoff =
+        connection_table["retry_backoff_ms"].value_exact<int64_t>();
+    if (retry_backoff.has_value()) {
+      this->connection.retry_backoff_ms =
+          static_cast<uint32_t>(retry_backoff.value());
+    }
+
+    auto max_backoff =
+        connection_table["max_backoff_ms"].value_exact<int64_t>();
+    if (max_backoff.has_value()) {
+      this->connection.max_backoff_ms =
+          static_cast<uint32_t>(max_backoff.value());
+    }
+
+    auto keepalive =
+        connection_table["keepalive_interval_ms"].value_exact<int64_t>();
+    if (keepalive.has_value()) {
+      this->connection.keepalive_interval_ms =
+          static_cast<uint32_t>(keepalive.value());
+    }
+
+    auto unreachable_failures =
+        connection_table["unreachable_after_failures"].value_exact<int64_t>();
+    if (unreachable_failures.has_value()) {
+      this->connection.unreachable_after_failures =
+          static_cast<uint16_t>(unreachable_failures.value());
+    }
+  }
 }
 
 std::optional<std::string> Config::get_user_config_path() {

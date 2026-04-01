@@ -11,6 +11,7 @@
 #include <thread>
 #include <vector>
 
+#include "config.hxx"
 #include "opus.h"
 #include "opus_types.h"
 #include "rtp.hxx"
@@ -23,7 +24,8 @@ class Client {
 
 public:
   Client(std::pair<std::string, uint16_t> local_socket,
-         std::pair<std::string, uint16_t> remote_socket);
+         std::pair<std::string, uint16_t> remote_socket,
+         ConnectionPolicy conn_pol = ConnectionPolicy{});
 
   ~Client();
 
@@ -59,6 +61,8 @@ private:
   std::mutex playback_queue_mutex;
 
   std::thread virtual_input_thread;
+
+  ConnectionPolicy conn_pol;
 
   std::pair<recv_hook_t, void *> make_recv_callback(Client *self);
   static void recv_callback(void *userdata, uvgrtp::frame::rtp_frame *frame);

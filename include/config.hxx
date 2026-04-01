@@ -12,7 +12,26 @@
 #define DEFAULT_LOCAL_PORT 8891
 #define DEFAULT_LOCAL_IP "localhost"
 
+// TODO: Allow configuration in [net] table.
+#define DEFAULT_CONNECT_TIMEOUT_MS 5000
+#define DEFAULT_HANDSHAKE_TIMEOUT_MS 3000
+#define DEFAULT_MAX_RETRIES 3
+#define DEFAULT_RETRY_BACKOFF_MS 2000
+#define DEFAULT_MAX_BACKOFF_MS 30000
+#define DEFAULT_KEEPALIVE_INTERVAL_MS 20000
+#define DEFAULT_UNREACHABLE_AFTER_FAILURES 3
+
 enum class Mode { CLIENT, SERVER };
+
+struct ConnectionPolicy {
+  uint32_t connect_timeout_ms = DEFAULT_CONNECT_TIMEOUT_MS;
+  uint32_t handshake_timeout_ms = DEFAULT_HANDSHAKE_TIMEOUT_MS;
+  uint16_t max_retries = DEFAULT_MAX_RETRIES;
+  uint32_t retry_backoff_ms = DEFAULT_RETRY_BACKOFF_MS;
+  uint32_t max_backoff_ms = DEFAULT_MAX_BACKOFF_MS;
+  uint32_t keepalive_interval_ms = DEFAULT_KEEPALIVE_INTERVAL_MS;
+  uint16_t unreachable_after_failures = DEFAULT_UNREACHABLE_AFTER_FAILURES;
+};
 
 class Config {
 public:
@@ -31,6 +50,9 @@ public:
   std::string remote_ip;
   uint16_t remote_port;
   uint16_t local_port;
+
+  // Connection policy for initial handshake and runtime health.
+  struct ConnectionPolicy connection;
 
 private:
   static std::string file_to_str(const std::filesystem::path &path);

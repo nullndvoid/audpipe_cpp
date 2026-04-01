@@ -37,6 +37,8 @@ public:
   // TODO: Handle RTCP information for reads and writes internally.
   void write_frames(uint8_t *data, size_t data_len);
 
+  bool is_initialised() const;
+
 private:
   static uvgrtp::context ctx;
   uvgrtp::session *session;

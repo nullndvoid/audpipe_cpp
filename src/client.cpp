@@ -1,8 +1,10 @@
 #include "client.hxx"
 #include "audio.hxx"
 
+#include "config.hxx"
 #include "opus_types.h"
 #include "uvgrtp/frame.hh"
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -52,8 +54,9 @@ Client::make_recv_callback(Client *self) {
 }
 
 Client::Client(std::pair<std::string, uint16_t> local_socket,
-               std::pair<std::string, uint16_t> remote_socket)
-    : logger(spdlog::get("audpipe")) {
+               std::pair<std::string, uint16_t> remote_socket,
+               ConnectionPolicy conn_pol)
+    : conn_pol(conn_pol), logger(spdlog::get("audpipe")) {
   // Setup opus decoding.
   int error = OPUS_OK;
   this->opusdec = opus_decoder_create(48000, 2, &error);
@@ -129,19 +132,31 @@ Client::Client(std::pair<std::string, uint16_t> local_socket,
     return written;
   });
 
+  for (unsigned attempt = 1; attempt <= this->conn_pol.max_retries; ++attempt) {
+    try {
+      this->rtp.emplace(local_socket, remote_socket, make_recv_callback(this));
+      break;
+    } catch (const std::exception &e) {
+      this->rtp.reset();
+
+      if (attempt == this->conn_pol.max_retries) {
+        auto error_msg = std::format(
+            "Failed to initialise RTP after {} attempts. Reason: {}", attempt,
+            e.what());
+        set_error(error_msg);
+        throw std::runtime_error(error_msg);
+      }
+
+      this->logger->warn("RTP init failed on attempt {}/{}: {}", attempt,
+                         this->conn_pol.max_retries, e.what());
+
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(this->conn_pol.retry_backoff_ms));
+    }
+  }
+
   this->virtual_input_thread =
       std::thread(Client::call_virtual_input_setup, this);
-
-  // TODO: Handle server not being started or reachable.
-  try {
-    this->rtp.emplace(local_socket, remote_socket, make_recv_callback(this));
-  } catch (const std::exception &e) {
-    auto error_msg =
-        std::format("Failed to initialise RTP. Reason: {}", e.what());
-    set_error(error_msg);
-
-    throw std::runtime_error(error_msg);
-  }
 }
 
 Client::~Client() {

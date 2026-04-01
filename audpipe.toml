@@ -12,3 +12,14 @@ port = 7981
 [server]
 ip = "localhost"
 port = 8179
+
+# Set some initial connection defaults here.
+# The below values are default values, bear in mind.
+[net]
+connect_timeout_ms = 5000
+handshake_timeout_ms = 3000
+max_retries = 3
+retry_backoff_ms = 2000
+max_backoff_ms = 30000
+keepalive_interval_ms = 20000
+unreachable_after_failures = 3

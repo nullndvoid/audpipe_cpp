@@ -97,3 +97,7 @@ Rtp::~Rtp() {
   this->session->destroy_stream(this->stream);
   ctx.destroy_session(this->session);
 }
+
+bool Rtp::is_initialised() const {
+  return this->session != nullptr && this->stream != nullptr;
+}
