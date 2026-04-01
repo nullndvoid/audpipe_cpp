@@ -1,10 +1,15 @@
+#include <arpa/inet.h>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 
 #include <iostream>
+#include <netdb.h>
 #include <spdlog/spdlog.h>
 
+#include <stdexcept>
+#include <string>
+#include <sys/socket.h>
 #include <toml++/toml.hpp>
 
 #include "config.hxx"
@@ -18,6 +23,54 @@ Mode remote(Mode m) {
 // Converts the `Mode` to a string, lowercase.
 std::string mode_to_str(Mode m) {
   return (m == Mode::CLIENT) ? "client" : "server";
+}
+
+uint16_t Config::validate_port(const std::string &s) {
+  errno = 0;
+  unsigned long a = std::stoul(s);
+
+  if (a < 1024 || a > 65535) {
+    auto logger = spdlog::get("audpipe");
+    auto err_str = std::format(
+        "Got \'{}\' for port but expected port in [1024, 65535].", s);
+
+    logger->error(err_str);
+
+    throw std::runtime_error(err_str);
+  }
+
+  return 1;
+}
+
+// Might also validate connectivity but this is somewhat desired.
+// Throws exception if getaddrinfo fails.
+bool Config::validate_ip(const std::string &s) {
+  struct addrinfo hints;
+
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
+  hints.ai_socktype = SOCK_DGRAM; /* Datagram socket */
+  hints.ai_flags = AI_PASSIVE;    /* For wildcard IP address */
+  hints.ai_protocol = 0;          /* Any protocol */
+  hints.ai_canonname = nullptr;
+  hints.ai_addr = nullptr;
+  hints.ai_next = nullptr;
+
+  struct addrinfo *out = {};
+  auto ret = getaddrinfo(s.c_str(), nullptr, &hints, &out);
+  if (ret != 0) {
+    auto logger = spdlog::get("audpipe");
+
+    auto err_msg = std::format("getaddrinfo failed for host \'{}\': {}", s,
+                               gai_strerror(ret));
+    logger->error(err_msg);
+
+    throw std::runtime_error(err_msg);
+  }
+
+  freeaddrinfo(out);
+
+  return true;
 }
 
 std::string Config::file_to_str(const std::filesystem::path &path) {
@@ -92,8 +145,15 @@ Config::Config(const std::string &cfg_path, Mode mode) {
   auto local_table_name = mode_to_str(mode);
   auto locals = table[local_table_name];
 
+  std::string err_msg;
+  auto die = [&] {
+    logger->error(err_msg);
+
+    throw std::runtime_error(err_msg);
+  };
+
   if (!remotes || !remotes.is_table()) {
-    auto err_msg =
+    err_msg =
         std::format("Expected table `[{}]` in config file.", remote_table_name);
 
     logger->error(err_msg);
@@ -104,27 +164,24 @@ Config::Config(const std::string &cfg_path, Mode mode) {
   // TODO: Validate IPs, ports after reading config.
   auto ip = remotes["ip"].value<std::string>();
   if (!ip.has_value()) {
-    auto err_msg =
+    err_msg =
         std::format("You need to set {}.ip in config file.", remote_table_name);
 
-    logger->error(err_msg);
-
-    throw std::runtime_error(err_msg);
+    die();
   }
 
+  validate_ip(ip.value());
   this->remote_ip = ip.value();
 
-  auto port = locals["port"].value_exact<uint16_t>();
+  auto port = locals["port"].value<std::string>();
   if (!port.has_value()) {
-    auto err_msg = std::format("You need to set {}.port in config file. The "
-                               "port should also be in the range 1024-65535.",
-                               remote_table_name);
+    err_msg = std::format("You need to set {}.port in config file. The "
+                          "port should also be in the range 1024-65535.",
+                          remote_table_name);
 
-    logger->error(err_msg);
-
-    throw std::runtime_error(err_msg);
+    die();
   }
-  this->remote_port = port.value();
+  this->remote_port = validate_port(port.value());
 
   // Then, check `mode` table for ip and port. If not present, defaults are
   // already set, and we will log these values later.
@@ -132,20 +189,19 @@ Config::Config(const std::string &cfg_path, Mode mode) {
     return;
   }
 
-  this->local_ip = locals["ip"].value_or<std::string>(DEFAULT_LOCAL_IP);
+  auto local_ip = locals["ip"].value_or<std::string>(DEFAULT_LOCAL_IP);
+  validate_ip(local_ip);
+  this->local_ip = local_ip;
 
-  auto local_port = locals["port"].value_exact<uint16_t>();
+  auto local_port = locals["port"].value_exact<std::string>();
   if (!local_port.has_value()) {
-    auto err_msg = std::format("You need to set {}.port in config file. The "
-                               "port should also be in the range 1024-65535.",
-                               local_table_name);
+    err_msg = std::format("You need to set {}.port in config file. The "
+                          "port should also be in the range 1024-65535.",
+                          local_table_name);
 
-    logger->error(err_msg);
-
-    throw std::runtime_error(err_msg);
+    die();
   }
-
-  this->local_port = local_port.value();
+  this->local_port = validate_port(local_port.value());
 }
 
 std::optional<std::string> Config::get_user_config_path() {

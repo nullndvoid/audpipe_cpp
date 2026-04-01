@@ -31,6 +31,8 @@ public:
 
 private:
   static std::string file_to_str(const std::filesystem::path &path);
+  bool validate_ip(const std::string &s);
+  uint16_t validate_port(const std::string &s);
 };
 
 #endif
