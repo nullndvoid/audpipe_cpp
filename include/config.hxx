@@ -24,6 +24,9 @@ public:
 
   static std::optional<std::string> get_user_config_path();
 
+  // Converts the `Mode` to a string, lowercase.
+  static std::string mode_to_str(Mode m);
+
   std::string local_ip;
   std::string remote_ip;
   uint16_t remote_port;

@@ -16,12 +16,12 @@
 
 // Returns the opposing mode to ensure users provide the remote connection
 // details.
-Mode remote(Mode m) {
+inline Mode remote(Mode m) {
   return (m == Mode::CLIENT) ? Mode::SERVER : Mode::CLIENT;
 }
 
 // Converts the `Mode` to a string, lowercase.
-std::string mode_to_str(Mode m) {
+inline std::string Config::mode_to_str(Mode m) {
   return (m == Mode::CLIENT) ? "client" : "server";
 }
 
