@@ -1,9 +1,14 @@
 # Example configuration file for audpipe. Use whatever TOML syntax you like.
+# Hostnames can be resolved using the system DNS if you like. We default to
+# IPv6 as recommended for newer applications.
+# 
+# Only your remote details need to be specified if you don't mind using local
+# defaults. I should add these to the README or something.
 
 [client]
-ip = "127.0.0.1"
+ip = "localhost"
 port = 7981
 
 [server]
-ip = "100.123.32.1"
+ip = "localhost"
 port = 8179

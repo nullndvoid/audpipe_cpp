@@ -10,7 +10,7 @@
 
 #define DEFAULT_REMOTE_PORT 8890
 #define DEFAULT_LOCAL_PORT 8891
-#define DEFAULT_LOCAL_IP "127.0.0.1"
+#define DEFAULT_LOCAL_IP "localhost"
 
 enum class Mode { CLIENT, SERVER };
 
