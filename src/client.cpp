@@ -4,6 +4,7 @@
 #include "opus_types.h"
 #include "uvgrtp/frame.hh"
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <format>
 #include <stdexcept>
@@ -14,21 +15,34 @@ void Client::recv_callback(void *userdata, uvgrtp::frame::rtp_frame *frame) {
   if (self == nullptr || frame == nullptr)
     return;
 
-  if (self->should_stop.load() || self->state.load() == ClientState::ERROR) {
+  if (self->should_stop.load() || !self->healthy.load()) {
     auto err_code = uvgrtp::frame::dealloc_frame(frame);
     if (err_code != RTP_OK) {
-      self->logger->critical("Frame deallocation failed with code {}",
-                             static_cast<int8_t>(err_code));
+      self->logger->warn("Frame deallocation failed with code {}",
+                         static_cast<int8_t>(err_code));
     }
 
     return;
   }
 
-  self->logger->debug("Got RTP frame of size {}", frame->dgram_size);
+  if (frame->payload != nullptr && frame->payload_len > 0) {
+    auto lock = std::scoped_lock(self->playback_queue_mutex);
+    constexpr size_t MAX_COMPRESSED_QUEUE_FRAMES = 256;
+
+    if (self->compressed_queue.size() >= MAX_COMPRESSED_QUEUE_FRAMES) {
+      self->compressed_queue.pop_front();
+    }
+
+    auto *begin = static_cast<uint8_t *>(frame->payload);
+    self->compressed_queue.emplace_back(begin, begin + frame->payload_len);
+    self->frames_received.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  self->logger->debug("Queued RTP frame of size {}", frame->dgram_size);
   auto err_code = uvgrtp::frame::dealloc_frame(frame);
   if (err_code != RTP_OK) {
-    self->logger->critical("Frame deallocation failed with code {}",
-                           static_cast<int8_t>(err_code));
+    self->logger->warn("Frame deallocation failed with code {}",
+                       static_cast<int8_t>(err_code));
   }
 }
 
@@ -37,13 +51,9 @@ Client::make_recv_callback(Client *self) {
   return {&Client::recv_callback, self};
 }
 
-// State machine goes roughly in the order as in the markdown file and header.
-// IDLE -> AUDIO_SETUP -> RX_READY
 Client::Client(std::pair<std::string, uint16_t> local_socket,
                std::pair<std::string, uint16_t> remote_socket)
     : logger(spdlog::get("audpipe")) {
-  this->state = ClientState::AUDIO_SETUP;
-
   // Setup opus decoding.
   int error = OPUS_OK;
   this->opusdec = opus_decoder_create(48000, 2, &error);
@@ -60,8 +70,64 @@ Client::Client(std::pair<std::string, uint16_t> local_socket,
 
   // Setup audio backend and virtual input.
   auto &audio = AudioBackend::instance();
-  audio.set_write_callback(
-      [&](uint8_t *dst, size_t max_len) mutable { return 0; });
+  audio.set_write_callback([&](uint8_t *dst, size_t max_len) mutable {
+    if (dst == nullptr || max_len == 0 || this->should_stop.load() ||
+        !this->healthy.load()) {
+      return static_cast<size_t>(0);
+    }
+
+    size_t written = 0;
+
+    while (written < max_len) {
+      {
+        auto lock = std::scoped_lock(this->playback_queue_mutex);
+        while (written < max_len && !this->playback_queue.empty()) {
+          dst[written] = this->playback_queue.front();
+          this->playback_queue.pop_front();
+          ++written;
+        }
+      }
+
+      if (written == max_len) {
+        break;
+      }
+
+      std::vector<uint8_t> compressed_frame;
+      {
+        auto lock = std::scoped_lock(this->playback_queue_mutex);
+        if (this->compressed_queue.empty()) {
+          break;
+        }
+
+        compressed_frame = std::move(this->compressed_queue.front());
+        this->compressed_queue.pop_front();
+      }
+
+      auto decoded_samples_per_channel =
+          opus_decode(this->opusdec, compressed_frame.data(),
+                      static_cast<opus_int32>(compressed_frame.size()),
+                      this->pcm_decbuf.data(), 960, 0);
+
+      if (decoded_samples_per_channel < 0) {
+        this->logger->warn("Failed to decode opus payload: {}",
+                           opus_strerror(decoded_samples_per_channel));
+        continue;
+      }
+
+      const auto *pcm_bytes =
+          reinterpret_cast<const uint8_t *>(this->pcm_decbuf.data());
+      size_t decoded_bytes = static_cast<size_t>(decoded_samples_per_channel) *
+                             2 * sizeof(opus_int16);
+
+      {
+        auto lock = std::scoped_lock(this->playback_queue_mutex);
+        this->playback_queue.insert(this->playback_queue.end(), pcm_bytes,
+                                    pcm_bytes + decoded_bytes);
+      }
+    }
+
+    return written;
+  });
 
   this->virtual_input_thread =
       std::thread(Client::call_virtual_input_setup, this);
@@ -76,23 +142,24 @@ Client::Client(std::pair<std::string, uint16_t> local_socket,
 
     throw std::runtime_error(error_msg);
   }
-
-  this->state = ClientState::RX_READY;
 }
 
 Client::~Client() {
+  if (this->opusdec != nullptr) {
+    opus_decoder_destroy(this->opusdec);
+    this->opusdec = nullptr;
+  }
+
   if (this->virtual_input_thread.joinable()) {
     this->virtual_input_thread.join();
   }
 }
 
 void Client::set_error(const std::string &err) {
-  ClientState expected = this->state.load();
-  if (expected == ClientState::ERROR || expected == ClientState::STOP) {
+  if (!this->healthy.exchange(false)) {
     return;
   }
 
-  this->state = ClientState::ERROR;
   this->last_error = err;
   this->should_stop = true;
   this->logger->error("{}", err);
@@ -115,4 +182,20 @@ void Client::call_virtual_input_setup(void *a) {
 
     self->set_error(error_msg);
   }
+}
+
+inline bool Client::is_healthy() const { return this->healthy.load(); }
+
+inline void Client::request_shutdown() { this->should_stop = true; }
+
+inline size_t Client::get_frames_received() const {
+  return this->frames_received.load();
+}
+
+Rtp *Client::get_rtp() {
+  if (!this->rtp.has_value()) {
+    return nullptr;
+  }
+
+  return &this->rtp.value();
 }

@@ -8,6 +8,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "opus.h"
@@ -16,15 +17,6 @@
 #include "spdlog/logger.h"
 
 #define PCM_DECBUF_SIZE (960 * 2)
-
-enum class ClientState : uint8_t {
-  IDLE,
-  AUDIO_SETUP,
-  RX_READY,
-  RX,
-  ERROR,
-  STOP,
-};
 
 class Client {
   using recv_hook_t = void (*)(void *, uvgrtp::frame::rtp_frame *);
@@ -35,7 +27,10 @@ public:
 
   ~Client();
 
-  ClientState get_state() const;
+  // Prevent copies/moves
+  Client(const Client &) = delete;
+  Client &operator=(const Client &) = delete;
+
   bool is_healthy() const;
   void request_shutdown();
   size_t get_frames_received() const;
@@ -48,14 +43,18 @@ private:
   std::shared_ptr<spdlog::logger> logger;
   std::optional<Rtp> rtp;
 
-  std::atomic<ClientState> state = ClientState::IDLE;
   std::atomic<bool> should_stop = false;
+  std::atomic<bool> healthy = true;
   std::atomic<size_t> frames_received = 0;
   std::string last_error;
 
   OpusDecoder *opusdec = nullptr;
   std::vector<opus_int16> pcm_decbuf;
+
+  // PCM bytes ready for virtual microphone writer.
   std::deque<uint8_t> playback_queue;
+  // Compressed Opus payloads queued from RTP callback.
+  std::deque<std::vector<uint8_t>> compressed_queue;
   // Deque isn't thread safe.
   std::mutex playback_queue_mutex;
 

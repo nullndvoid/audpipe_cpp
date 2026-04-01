@@ -17,6 +17,9 @@ public:
   Server(std::pair<std::string, uint16_t> local_socket,
          std::pair<std::string, uint16_t> remote_socket, AudioDevice dev);
 
+  Server(const Server &) = delete;
+  Server &operator=(const Server &) = delete;
+
   // Interactively asks the user to choose a device to use. This should likely
   // be replaced with configuration file/CLI arguments.
   static AudioDevice choose_device_interactive(std::vector<AudioDevice> inputs);
