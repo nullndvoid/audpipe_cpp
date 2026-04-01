@@ -25,33 +25,30 @@ std::string mode_to_str(Mode m) {
   return (m == Mode::CLIENT) ? "client" : "server";
 }
 
-uint16_t Config::validate_port(const std::string &s) {
-  errno = 0;
-  unsigned long a = std::stoul(s);
-
-  if (a < 1024 || a > 65535) {
+uint16_t Config::validate_port(int64_t port) {
+  if (port < 1024 || port > 65535) {
     auto logger = spdlog::get("audpipe");
     auto err_str = std::format(
-        "Got \'{}\' for port but expected port in [1024, 65535].", s);
+        "Got \'{}\' for port but expected port in [1024, 65535].", port);
 
     logger->error(err_str);
 
     throw std::runtime_error(err_str);
   }
 
-  return 1;
+  return static_cast<uint16_t>(port);
 }
 
-// Might also validate connectivity but this is somewhat desired.
+// Resolves hosts using system DNS if not passed an IP address.
 // Throws exception if getaddrinfo fails.
-bool Config::validate_ip(const std::string &s) {
+const std::string Config::validate_ip(const std::string &s) {
   struct addrinfo hints;
 
   memset(&hints, 0, sizeof(hints));
-  hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
-  hints.ai_socktype = SOCK_DGRAM; /* Datagram socket */
-  hints.ai_flags = AI_PASSIVE;    /* For wildcard IP address */
-  hints.ai_protocol = 0;          /* Any protocol */
+  hints.ai_family = AF_UNSPEC;                 /* Allow IPv4 or IPv6 */
+  hints.ai_socktype = SOCK_DGRAM;              /* Datagram socket */
+  hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG; /* For wildcard IP address */
+  hints.ai_protocol = 0;                       /* Any protocol */
   hints.ai_canonname = nullptr;
   hints.ai_addr = nullptr;
   hints.ai_next = nullptr;
@@ -68,9 +65,18 @@ bool Config::validate_ip(const std::string &s) {
     throw std::runtime_error(err_msg);
   }
 
-  freeaddrinfo(out);
+  void *addr;
+  char ip[INET6_ADDRSTRLEN];
 
-  return true;
+  if (out->ai_family == AF_INET6) {
+    addr = &((struct sockaddr_in6 *)out->ai_addr)->sin6_addr;
+    inet_ntop(AF_INET6, addr, ip, sizeof(ip));
+  } else {
+    addr = &((struct sockaddr_in *)out->ai_addr)->sin_addr;
+    inet_ntop(AF_INET, addr, ip, sizeof(ip));
+  }
+
+  return std::string(ip);
 }
 
 std::string Config::file_to_str(const std::filesystem::path &path) {
@@ -161,7 +167,6 @@ Config::Config(const std::string &cfg_path, Mode mode) {
     throw std::runtime_error(err_msg);
   }
 
-  // TODO: Validate IPs, ports after reading config.
   auto ip = remotes["ip"].value<std::string>();
   if (!ip.has_value()) {
     err_msg =
@@ -170,10 +175,9 @@ Config::Config(const std::string &cfg_path, Mode mode) {
     die();
   }
 
-  validate_ip(ip.value());
-  this->remote_ip = ip.value();
+  this->remote_ip = validate_ip(ip.value());
 
-  auto port = locals["port"].value<std::string>();
+  auto port = remotes["port"].value_exact<int64_t>();
   if (!port.has_value()) {
     err_msg = std::format("You need to set {}.port in config file. The "
                           "port should also be in the range 1024-65535.",
@@ -190,10 +194,9 @@ Config::Config(const std::string &cfg_path, Mode mode) {
   }
 
   auto local_ip = locals["ip"].value_or<std::string>(DEFAULT_LOCAL_IP);
-  validate_ip(local_ip);
-  this->local_ip = local_ip;
+  this->local_ip = validate_ip(local_ip);
 
-  auto local_port = locals["port"].value_exact<std::string>();
+  auto local_port = locals["port"].value_exact<int64_t>();
   if (!local_port.has_value()) {
     err_msg = std::format("You need to set {}.port in config file. The "
                           "port should also be in the range 1024-65535.",
