@@ -214,6 +214,11 @@ bool Client::is_healthy() const { return this->healthy.load(); }
 
 void Client::request_shutdown() {
   this->should_stop = true;
+
+  if (this->rtp.has_value()) {
+    this->rtp->stop();
+  }
+
   AudioBackend::instance().stop_recording();
 }
 

@@ -5,7 +5,9 @@
 #include <asio.hpp>
 #include <spdlog/spdlog.h>
 
+#include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 class Rtp {
@@ -38,6 +40,11 @@ public:
   // TODO: Handle RTCP information for reads and writes internally.
   void write_frames(uint8_t *data, size_t data_len);
 
+  // Explicitly tear down stream/session. Safe to call multiple times.
+  void stop();
+
+  bool is_stopped() const;
+
   bool is_initialised() const;
 
 private:
@@ -48,6 +55,9 @@ private:
   asio::io_context io;
 
   std::shared_ptr<spdlog::logger> logger;
+
+  mutable std::mutex teardown_mutex;
+  std::atomic<bool> stopped{false};
 
   static void init_rtp(Rtp *rtp, bool sending, std::string &local_addr,
                        uint16_t local_port, uint16_t remote_port);

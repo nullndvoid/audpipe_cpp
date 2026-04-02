@@ -49,6 +49,10 @@ Rtp::Rtp(std::pair<std::string, uint16_t> local_socket,
 }
 
 void Rtp::write_frames(uint8_t *data, size_t data_len) {
+  if (this->stopped.load() || this->stream == nullptr) {
+    return;
+  }
+
   rtp_error_t err = this->stream->push_frame(data, data_len, RCC_NO_FLAGS);
 
   if (err != RTP_OK) {
@@ -100,17 +104,31 @@ void Rtp::init_rtp(Rtp *rtp, bool sending, std::string &local_addr,
   }
 }
 
-Rtp::~Rtp() {
-  if (this->stream != nullptr)
-    this->session->destroy_stream(this->stream);
+Rtp::~Rtp() { stop(); }
 
-  if (this->session != nullptr)
+void Rtp::stop() {
+  auto lock = std::scoped_lock(this->teardown_mutex);
+  if (this->stopped.exchange(true)) {
+    return;
+  }
+
+  if (this->session != nullptr && this->stream != nullptr) {
+    this->session->destroy_stream(this->stream);
+    this->stream = nullptr;
+  }
+
+  if (this->session != nullptr) {
     ctx.destroy_session(this->session);
+    this->session = nullptr;
+  }
 }
 
 bool Rtp::is_initialised() const {
-  return this->session != nullptr && this->stream != nullptr;
+  return !this->stopped.load() && this->session != nullptr &&
+         this->stream != nullptr;
 }
+
+bool Rtp::is_stopped() const { return this->stopped.load(); }
 
 void Rtp::handshake_client() {
   asio::steady_timer timer(this->io, asio::chrono::seconds(5));

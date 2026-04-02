@@ -75,6 +75,7 @@ void Server::run() {
 
 void Server::stop() {
   this->running = false;
+  this->rtp.stop();
   AudioBackend::instance().stop_recording();
 }
 
