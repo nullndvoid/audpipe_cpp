@@ -5,12 +5,12 @@
 # Only your remote details need to be specified if you don't mind using local
 # defaults. I should add these to the README or something.
 
-[client]
-ip = "0.0.0.0"
-port = 7981
+# [client]
+# ip = "smh"
+# port = 7981
 
 [server]
-ip = "localhost"
+ip = "jinch-thinkpad"
 port = 8179
 
 # Set some initial connection defaults here.
