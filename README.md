@@ -6,11 +6,9 @@ Currently only records input on Linux via Pulseaudio but I plan to extend suppor
 
 ## TODOs
 
-- Replace awful CLI.cpp with config.cpp, TOML config is mandatory, local config overrides global.
 - Fix broken client, server implementations.
-- Implement state machines for Server and Rtp classes.
 - Make a TUI/GUI for controlling the application.
-- Fix timeout issues on initial handshake (orchestration etc)
-- Add Windows support in terms of audio (QUITE IMPORTANT).
-- Cleanup the pulseaudio backend. Code is hot garbage. (Probably just rewrite for Pipewire once other tasks are complete)
+- Fix timeout issues on initial handshake (partially done)
+- Add Windows support in terms of audio (very important).
+- Add pipewire backend for fun and learning.
 - VOIP chat for fun? Or write like a library and have a different app call helpers.
