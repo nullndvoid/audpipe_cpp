@@ -11,7 +11,7 @@ uvgrtp::context Rtp::ctx;
 constexpr int DEFAULT_SEND_FLAGS =
     RCE_RTCP | RCE_SYSTEM_CALL_CLUSTERING | RCE_SEND_ONLY;
 
-constexpr int DEFAULT_RECV_FLAGS = RCE_RTCP;
+constexpr int DEFAULT_RECV_FLAGS = RCE_RTCP | RCE_RECEIVE_ONLY;
 
 // Confusingly the server connects to the client, this is my poor naming.
 Rtp::Rtp(std::pair<std::string, uint16_t> local_socket,
