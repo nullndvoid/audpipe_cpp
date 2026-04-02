@@ -21,7 +21,7 @@ inline Mode remote(Mode m) {
 }
 
 // Converts the `Mode` to a string, lowercase.
-inline std::string Config::mode_to_str(Mode m) {
+std::string Config::mode_to_str(Mode m) {
   return (m == Mode::CLIENT) ? "client" : "server";
 }
 
