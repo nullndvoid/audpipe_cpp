@@ -2,6 +2,7 @@
 #define __AUDPIPE_RTP
 
 #include "uvgrtp/lib.hh" // IWYU pragma: keep
+#include <asio.hpp>
 #include <spdlog/spdlog.h>
 
 #include <cstdint>
@@ -41,8 +42,10 @@ public:
 
 private:
   static uvgrtp::context ctx;
-  uvgrtp::session *session;
-  uvgrtp::media_stream *stream;
+  uvgrtp::session *session = nullptr;
+  uvgrtp::media_stream *stream = nullptr;
+
+  asio::io_context io;
 
   std::shared_ptr<spdlog::logger> logger;
 
@@ -51,6 +54,12 @@ private:
 
   // TODO: Handle RTCP information for reads and writes.
   void read_frames();
+
+  // Test initial reachability and fail fast.
+  void handshake_client();
+
+  // Wait for client connects, reply with 'handshake'.
+  void handshake_server();
 };
 
 #endif

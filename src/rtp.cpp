@@ -21,8 +21,13 @@ constexpr int DEFAULT_RECV_FLAGS =
 // Confusingly the server connects to the client, this is my poor naming.
 Rtp::Rtp(std::pair<std::string, uint16_t> local_socket,
          std::pair<std::string, uint16_t> remote_socket) {
+  this->logger = spdlog::get("audpipe");
+
   this->session =
       ctx.create_session(std::pair(local_socket.first, remote_socket.first));
+
+  handshake_server();
+
   init_rtp(this, true, local_socket.first, local_socket.second,
            remote_socket.second);
 }
@@ -30,10 +35,14 @@ Rtp::Rtp(std::pair<std::string, uint16_t> local_socket,
 Rtp::Rtp(std::pair<std::string, uint16_t> local_socket,
          std::pair<std::string, uint16_t> remote_socket,
          std::pair<recv_hook_t, void *> cb) {
+  this->logger = spdlog::get("audpipe");
+
   this->recv_callback = cb;
 
   this->session =
       ctx.create_session(std::pair(local_socket.first, remote_socket.first));
+
+  handshake_client();
 
   init_rtp(this, false, local_socket.first, local_socket.second,
            remote_socket.second);
@@ -59,8 +68,6 @@ void Rtp::init_rtp(Rtp *rtp, bool sending, std::string &local_addr,
     // media_stream is created.
     assert(rtp->recv_callback.first != nullptr);
   }
-
-  rtp->logger = spdlog::get("audpipe");
 
   if (rtp->session == nullptr) {
     auto error_str = "Failed to create uvgRTP session. Must be OOM.";
@@ -94,10 +101,27 @@ void Rtp::init_rtp(Rtp *rtp, bool sending, std::string &local_addr,
 }
 
 Rtp::~Rtp() {
-  this->session->destroy_stream(this->stream);
-  ctx.destroy_session(this->session);
+  if (this->stream != nullptr)
+    this->session->destroy_stream(this->stream);
+
+  if (this->session != nullptr)
+    ctx.destroy_session(this->session);
 }
 
 bool Rtp::is_initialised() const {
   return this->session != nullptr && this->stream != nullptr;
+}
+
+void Rtp::handshake_client() {
+  asio::steady_timer timer(this->io, asio::chrono::seconds(5));
+  timer.wait();
+
+  this->logger->info("Sent client handshake!");
+}
+
+void Rtp::handshake_server() {
+  asio::steady_timer timer(this->io, asio::chrono::seconds(5));
+  timer.wait();
+
+  this->logger->info("Sent server handshake!");
 }
