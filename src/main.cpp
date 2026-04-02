@@ -2,17 +2,23 @@
 #include "client.hxx"
 #include "config.hxx"
 #include "server.hxx"
+#include "shutdown.hxx"
+
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
+#include <thread>
 
 inline void print_usage() {
   std::cerr << "Usage: audpipe (client | server)" << std::endl;
 }
 
 int main(int argc, char **argv) {
+  install_signal_handlers();
+
   auto stderr_logger = spdlog::stderr_color_mt("audpipe");
   stderr_logger->set_level(spdlog::level::info);
 
@@ -46,12 +52,20 @@ int main(int argc, char **argv) {
     std::pair remote_pair = {cfg.remote_ip, cfg.remote_port};
 
     if (mode == Mode::CLIENT) {
-      Client(local_pair, remote_pair);
+      Client client(local_pair, remote_pair, cfg.connection);
+
+      while (!is_shutdown_requested() && client.is_healthy()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+
+      client.request_shutdown();
     } else {
       auto &audio = AudioBackend::instance();
+      auto device = Server::choose_device_interactive(audio.get_inputs());
+      Server server(local_pair, remote_pair, device);
 
-      Server(local_pair, remote_pair,
-             Server::choose_device_interactive(audio.get_inputs()));
+      server.run();
+      server.stop();
     }
 
   } catch (...) {

@@ -3,6 +3,7 @@
 
 #include "config.hxx"
 #include "opus_types.h"
+#include "shutdown.hxx"
 #include "uvgrtp/frame.hh"
 #include <chrono>
 #include <cstdint>
@@ -150,8 +151,18 @@ Client::Client(std::pair<std::string, uint16_t> local_socket,
       this->logger->warn("RTP init failed on attempt {}/{}: {}", attempt,
                          this->conn_pol.max_retries, e.what());
 
-      std::this_thread::sleep_for(
-          std::chrono::milliseconds(this->conn_pol.retry_backoff_ms));
+      auto backoff = std::chrono::milliseconds(this->conn_pol.retry_backoff_ms);
+      auto waited = std::chrono::milliseconds(0);
+      constexpr auto poll_step = std::chrono::milliseconds(100);
+      while (waited < backoff && !is_shutdown_requested()) {
+        std::this_thread::sleep_for(poll_step);
+        waited += poll_step;
+      }
+
+      if (is_shutdown_requested()) {
+        set_error("Shutdown requested during RTP connection backoff.");
+        throw std::runtime_error("Shutdown requested.");
+      }
     }
   }
 
@@ -199,11 +210,14 @@ void Client::call_virtual_input_setup(void *a) {
   }
 }
 
-inline bool Client::is_healthy() const { return this->healthy.load(); }
+bool Client::is_healthy() const { return this->healthy.load(); }
 
-inline void Client::request_shutdown() { this->should_stop = true; }
+void Client::request_shutdown() {
+  this->should_stop = true;
+  AudioBackend::instance().stop_recording();
+}
 
-inline size_t Client::get_frames_received() const {
+size_t Client::get_frames_received() const {
   return this->frames_received.load();
 }
 

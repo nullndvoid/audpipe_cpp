@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
-#include <csignal>
 #include <cstring>
 #include <exception>
 #include <fcntl.h>
@@ -19,19 +18,10 @@
 #include "audio.hxx"
 #include "audio/pulseaudio_backend.hxx"
 #include "audio/pulseaudio_callbacks.hxx"
-
-namespace {
-volatile std::sig_atomic_t shutdown_requested = 0;
-
-void handle_shutdown_signal(int) { shutdown_requested = 1; }
-} // namespace
+#include "shutdown.hxx"
 
 PulseaudioBackend::PulseaudioBackend() {
   this->logger = spdlog::get("audpipe");
-
-  std::signal(SIGINT, handle_shutdown_signal);
-  std::signal(SIGTERM, handle_shutdown_signal);
-  std::signal(SIGPIPE, SIG_IGN);
 
   setenv("PULSE_PROP_application.name", "audpipe", 1);
   setenv("PULSE_PROP_application.icon_name", "audpipe", 1);
@@ -218,7 +208,7 @@ void PulseaudioBackend::record(AudioDevice dev) {
   // Run the mainloop — data arrives via stream_read_cb.
   this->recording = true;
   while (this->recording) {
-    if (shutdown_requested != 0) {
+    if (is_shutdown_requested()) {
       this->logger->info("Shutdown signal received; stopping recording.");
       this->recording = false;
       break;
@@ -310,7 +300,7 @@ void PulseaudioBackend::setup_virtual_input() {
       break;
     }
 
-    if (shutdown_requested != 0) {
+    if (is_shutdown_requested()) {
       int rollback_success = -1;
       auto op_unload =
           pa_context_unload_module(this->ctx, this->virtual_source_mod_idx,
@@ -384,7 +374,7 @@ void PulseaudioBackend::run_virtual_input() {
       "as your input device.");
 
   while (this->playback) {
-    if (shutdown_requested != 0) {
+    if (is_shutdown_requested()) {
       this->logger->info(
           "Shutdown signal received; stopping virtual microphone.");
       this->playback = false;
@@ -426,7 +416,7 @@ void PulseaudioBackend::run_virtual_input() {
         }
 
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-          if (shutdown_requested != 0) {
+          if (is_shutdown_requested()) {
             this->playback = false;
             break;
           }

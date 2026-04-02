@@ -19,7 +19,8 @@ std::string getline();
 
 Server::Server(std::pair<std::string, uint16_t> local_socket,
                std::pair<std::string, uint16_t> remote_socket, AudioDevice dev)
-    : local_address(local_socket.first), rtp(local_socket, remote_socket) {
+    : local_address(local_socket.first), device(std::move(dev)),
+      rtp(local_socket, remote_socket) {
   this->logger = spdlog::get("audpipe");
 
   int error = OPUS_OK;
@@ -36,7 +37,6 @@ Server::Server(std::pair<std::string, uint16_t> local_socket,
   this->opus_enc_outbuf_size = 0;
 
   auto &audio = AudioBackend::instance();
-  auto inputs = audio.get_inputs();
 
   audio.set_data_callback([&](const uint8_t *data, size_t len) {
     this->bytes_to_opus(data, len);
@@ -47,8 +47,35 @@ Server::Server(std::pair<std::string, uint16_t> local_socket,
     // TODO: Make this check for errors/fail etc. For now just hand it off.
     this->rtp.write_frames(opus_data, opus_data_len);
   });
+}
 
-  audio.record(dev);
+Server::~Server() {
+  stop();
+
+  if (this->opusenc != nullptr) {
+    opus_encoder_destroy(this->opusenc);
+    this->opusenc = nullptr;
+  }
+}
+
+void Server::run() {
+  this->running = true;
+
+  try {
+    AudioBackend::instance().record(this->device);
+  } catch (...) {
+    // We trust upstream code to log before throwing so just ignore the
+    // exception.
+    this->running = false;
+    throw;
+  }
+
+  this->running = false;
+}
+
+void Server::stop() {
+  this->running = false;
+  AudioBackend::instance().stop_recording();
 }
 
 AudioDevice Server::choose_device_interactive(std::vector<AudioDevice> inputs) {
