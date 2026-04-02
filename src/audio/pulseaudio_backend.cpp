@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <cstring>
@@ -445,16 +444,19 @@ void PulseaudioBackend::run_virtual_input() {
         produced = write_buf.size();
       }
     }
-    if (produced < write_buf.size()) {
-      std::fill(write_buf.begin() + static_cast<std::ptrdiff_t>(produced),
-                write_buf.end(), 0);
+    if (produced == 0) {
+      // No data ready this cycle. Yield briefly and try again.
+      pa_mainloop_iterate(this->mainloop, 0, nullptr);
+      ::usleep(2000);
+      continue;
     }
 
+    size_t bytes_to_write = produced;
     size_t offset = 0;
-    while (offset < write_buf.size()) {
+    while (offset < bytes_to_write) {
       ssize_t wrote =
           ::write(this->virtual_source_fd, write_buf.data() + offset,
-                  write_buf.size() - offset);
+                  bytes_to_write - offset);
       if (wrote < 0) {
         if (errno == EINTR) {
           continue;
@@ -468,7 +470,7 @@ void PulseaudioBackend::run_virtual_input() {
 
           pa_mainloop_iterate(this->mainloop, 0, nullptr);
           ::usleep(2000);
-          continue;
+          break;
         }
 
         if (errno == EPIPE) {
@@ -484,6 +486,11 @@ void PulseaudioBackend::run_virtual_input() {
 
         die();
       }
+
+      if (wrote == 0) {
+        break;
+      }
+
       offset += static_cast<size_t>(wrote);
     }
   }
