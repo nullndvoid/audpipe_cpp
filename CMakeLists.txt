@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.21.0 FATAL_ERROR)
 project(audpipe VERSION 0.1.0 LANGUAGES C CXX)
 
 include(cmake/CPM.cmake)
@@ -27,30 +27,12 @@ elseif(WIN32)
     target_sources(audpipe PRIVATE src/audio/wasapi_backend.cpp)
 endif()
 
-include(FetchContent)
-include(ExternalProject)
-
-set(CRYPTOPP_INSTALL_DIR ${CMAKE_BINARY_DIR}/_deps/cryptopp-install)
-set(CRYPTOPP_LIB_PATH ${CRYPTOPP_INSTALL_DIR}/lib/libcryptopp.a)
-set(CRYPTOPP_INCLUDE_PATH ${CRYPTOPP_INSTALL_DIR}/include)
-file(MAKE_DIRECTORY ${CRYPTOPP_INSTALL_DIR}/include)
-file(MAKE_DIRECTORY ${CRYPTOPP_INSTALL_DIR}/lib/pkgconfig)
-
-# Write a .pc file so uvgRTP's pkg-config check finds cryptopp at configure time.
-file(WRITE ${CRYPTOPP_INSTALL_DIR}/lib/pkgconfig/libcrypto++.pc
-"prefix=${CRYPTOPP_INSTALL_DIR}
-exec_prefix=\${prefix}
-libdir=\${prefix}/lib
-includedir=\${prefix}/include
-
-Name: libcrypto++
-Description: Crypto++ library
-Version: 8.9.0
-Libs: -L\${libdir} -lcryptopp
-Cflags: -I\${includedir}
-")
-
-set(ENV{PKG_CONFIG_PATH} "${CRYPTOPP_INSTALL_DIR}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+CPMAddPackage(
+  NAME cryptopp_cmake
+  GIT_REPOSITORY "https://github.com/abdes/cryptopp-cmake"
+  GIT_TAG "master" # would use 8.9.0 but they didn't fix some stuff in tagged release.
+  OPTIONS "CRYPTOPP_BUILD_TESTING OFF"
+)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -59,29 +41,6 @@ FetchContent_Declare(
     GIT_TAG v3.4.0
 )
 FetchContent_MakeAvailable(tomlplusplus)
-
-if(NOT EXISTS ${CRYPTOPP_LIB_PATH})
-  ExternalProject_Add(cryptopp_ext
-    GIT_REPOSITORY https://github.com/weidai11/cryptopp.git
-    GIT_TAG 843d74c7c97f9e19a615b8ff3c0ca06599ca501b
-    UPDATE_DISCONNECTED TRUE
-    CONFIGURE_COMMAND ""
-    BUILD_IN_SOURCE 1
-    INSTALL_DIR ${CRYPTOPP_INSTALL_DIR}
-    BUILD_COMMAND make static
-    INSTALL_COMMAND make PREFIX=<INSTALL_DIR> install
-    BUILD_BYPRODUCTS ${CRYPTOPP_LIB_PATH}
-  )
-endif()
-
-add_library(cryptopp STATIC IMPORTED GLOBAL)
-set_target_properties(cryptopp PROPERTIES
-  IMPORTED_LOCATION ${CRYPTOPP_LIB_PATH}
-  INTERFACE_INCLUDE_DIRECTORIES ${CRYPTOPP_INCLUDE_PATH}
-)
-if(TARGET cryptopp_ext)
-  add_dependencies(cryptopp cryptopp_ext)
-endif()
 
 FetchContent_Declare(
   uvgRTP
@@ -92,6 +51,7 @@ FetchContent_Declare(
 set(UVGRTP_DISABLE_PRINTS OFF CACHE BOOL "Disable uvgRTP logging" FORCE)
 set(UVGRTP_DISABLE_EXAMPLES ON CACHE BOOL "Disable uvgRTP examples" FORCE)
 set(UVGRTP_DISABLE_TESTS ON CACHE BOOL "Disable uvgRTP tests" FORCE)
+set(UVGRTP_DISABLE_INSTALL ON CACHE BOOL "Disable uvgRTP install/export" FORCE)
 
 FetchContent_MakeAvailable(uvgRTP)
 
@@ -99,8 +59,8 @@ target_compile_definitions(uvgrtp PRIVATE
   $<$<NOT:$<CONFIG:Debug>>:__RTP_SILENT__>
 )
 
-target_include_directories(uvgrtp PRIVATE ${CRYPTOPP_INCLUDE_PATH})
-target_link_libraries(uvgrtp PRIVATE cryptopp)
+# target_include_directories(uvgrtp PRIVATE ${cryptopp_INCLUDE_PATH})
+target_link_libraries(uvgrtp PRIVATE cryptopp::cryptopp)
 
 # Get libopus for encoding.
 FetchContent_Declare(
@@ -127,5 +87,5 @@ CPMAddPackage(
   GIT_TAG "main"
 )
 
-target_link_libraries(audpipe PRIVATE cryptopp uvgrtp opus spdlog::spdlog $<$<BOOL:${MINGW}>:ws2_32> tomlplusplus::tomlplusplus asio::asio)
+target_link_libraries(audpipe PRIVATE cryptopp::cryptopp uvgrtp opus spdlog::spdlog $<$<BOOL:${MINGW}>:ws2_32> tomlplusplus::tomlplusplus asio::asio)
 target_include_directories(audpipe PUBLIC include)
