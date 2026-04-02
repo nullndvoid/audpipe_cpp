@@ -16,7 +16,8 @@
 class Server {
 public:
   Server(std::pair<std::string, uint16_t> local_socket,
-         std::pair<std::string, uint16_t> remote_socket, AudioDevice dev);
+         std::pair<std::string, uint16_t> remote_socket, AudioDevice dev,
+         asio::io_context &io);
   ~Server();
 
   Server(const Server &) = delete;

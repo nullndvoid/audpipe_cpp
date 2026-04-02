@@ -56,7 +56,7 @@ Client::make_recv_callback(Client *self) {
 
 Client::Client(std::pair<std::string, uint16_t> local_socket,
                std::pair<std::string, uint16_t> remote_socket,
-               ConnectionPolicy conn_pol)
+               asio::io_context &io, ConnectionPolicy conn_pol)
     : conn_pol(conn_pol), logger(spdlog::get("audpipe")) {
   // Setup opus decoding.
   int error = OPUS_OK;
@@ -135,7 +135,8 @@ Client::Client(std::pair<std::string, uint16_t> local_socket,
 
   for (unsigned attempt = 1; attempt <= this->conn_pol.max_retries; ++attempt) {
     try {
-      this->rtp.emplace(local_socket, remote_socket, make_recv_callback(this));
+      this->rtp.emplace(local_socket, remote_socket, make_recv_callback(this),
+                        io);
       break;
     } catch (const std::exception &e) {
       this->rtp.reset();

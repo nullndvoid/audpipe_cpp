@@ -1,7 +1,6 @@
 #include "rtp.hxx"
-#include "shutdown.hxx"
+// #include "shutdown.hxx"
 
-#include <asio/error_code.hpp>
 #include <cassert>
 #include <cstdint>
 #include <stdexcept>
@@ -16,7 +15,8 @@ constexpr int DEFAULT_RECV_FLAGS = RCE_RTCP;
 
 // Confusingly the server connects to the client, this is my poor naming.
 Rtp::Rtp(std::pair<std::string, uint16_t> local_socket,
-         std::pair<std::string, uint16_t> remote_socket) {
+         std::pair<std::string, uint16_t> remote_socket, asio::io_context &io)
+    : io(io) {
   this->logger = spdlog::get("audpipe");
 
   this->session =
@@ -30,7 +30,8 @@ Rtp::Rtp(std::pair<std::string, uint16_t> local_socket,
 
 Rtp::Rtp(std::pair<std::string, uint16_t> local_socket,
          std::pair<std::string, uint16_t> remote_socket,
-         std::pair<recv_hook_t, void *> cb) {
+         std::pair<recv_hook_t, void *> cb, asio::io_context &io)
+    : io(io) {
   this->logger = spdlog::get("audpipe");
 
   this->recv_callback = cb;
@@ -42,12 +43,6 @@ Rtp::Rtp(std::pair<std::string, uint16_t> local_socket,
 
   init_rtp(this, false, local_socket.first, local_socket.second,
            remote_socket.second);
-}
-
-void asio_signal_handler(const asio::error_code &error, int signum) {
-  if (!error) {
-    request_shutdown();
-  }
 }
 
 void Rtp::write_frames(uint8_t *data, size_t data_len) {
@@ -76,11 +71,6 @@ void Rtp::init_rtp(Rtp *rtp, bool sending, std::string &local_addr,
     // media_stream is created.
     assert(rtp->recv_callback.first != nullptr);
   }
-
-  // Set asio to respect shutdowns as everywhere else.
-  asio::signal_set signals(rtp->io, SIGINT, SIGTERM);
-
-  signals.async_wait(asio_signal_handler);
 
   if (rtp->session == nullptr) {
     auto error_str = "Failed to create uvgRTP session. Must be OOM.";
@@ -139,18 +129,6 @@ bool Rtp::is_initialised() const {
 
 bool Rtp::is_stopped() const { return this->stopped.load(); }
 
-void Rtp::handshake_client() {
-  if (is_shutdown_requested()) {
-    throw std::runtime_error("Shutdown requested before client handshake.");
-  }
+void Rtp::handshake_client() { this->logger->info("Sent client handshake!"); }
 
-  this->logger->info("Sent client handshake!");
-}
-
-void Rtp::handshake_server() {
-  if (is_shutdown_requested()) {
-    throw std::runtime_error("Shutdown requested before server handshake.");
-  }
-
-  this->logger->info("Sent server handshake!");
-}
+void Rtp::handshake_server() { this->logger->info("Sent server handshake!"); }

@@ -16,8 +16,26 @@ inline void print_usage() {
   std::cerr << "Usage: audpipe (client | server)" << std::endl;
 }
 
+void asio_signal_handler(const asio::error_code &error, int signal_number,
+                         asio::io_context &io_context) {
+  auto logger = spdlog::get("audpipe");
+  logger->critical("Got signal {}", signal_number);
+
+  if (!error) {
+    request_shutdown();
+    io_context.stop();
+  } else if (error != asio::error::operation_aborted) {
+    logger->error("Signal error: {}", error.message());
+  }
+}
+
 int main(int argc, char **argv) {
-  install_signal_handlers();
+  asio::io_context io;
+  asio::signal_set signals(io, SIGINT, SIGTERM);
+
+  signals.async_wait(std::bind(asio_signal_handler, std::placeholders::_1,
+                               std::placeholders::_2, std::ref(io)));
+  std::thread signal_thread([&io]() { io.run(); });
 
   auto stderr_logger = spdlog::stderr_color_mt("audpipe");
   stderr_logger->set_level(spdlog::level::info);
@@ -52,7 +70,7 @@ int main(int argc, char **argv) {
     std::pair remote_pair = {cfg.remote_ip, cfg.remote_port};
 
     if (mode == Mode::CLIENT) {
-      Client client(local_pair, remote_pair, cfg.connection);
+      Client client(local_pair, remote_pair, io, cfg.connection);
 
       while (!is_shutdown_requested() && client.is_healthy()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -62,14 +80,23 @@ int main(int argc, char **argv) {
     } else {
       auto &audio = AudioBackend::instance();
       auto device = Server::choose_device_interactive(audio.get_inputs());
-      Server server(local_pair, remote_pair, device);
+      Server server(local_pair, remote_pair, device, io);
 
       server.run();
       server.stop();
     }
 
   } catch (...) {
+    io.stop();
+    if (signal_thread.joinable()) {
+      signal_thread.join();
+    }
     // Presume it was logged upstream and just quit.
     exit(1);
+  }
+
+  io.stop();
+  if (signal_thread.joinable()) {
+    signal_thread.join();
   }
 }

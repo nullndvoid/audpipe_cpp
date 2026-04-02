@@ -24,7 +24,7 @@ class Client {
 
 public:
   Client(std::pair<std::string, uint16_t> local_socket,
-         std::pair<std::string, uint16_t> remote_socket,
+         std::pair<std::string, uint16_t> remote_socket, asio::io_context &io,
          ConnectionPolicy conn_pol = ConnectionPolicy{});
 
   ~Client();

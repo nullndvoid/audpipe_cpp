@@ -18,9 +18,10 @@
 std::string getline();
 
 Server::Server(std::pair<std::string, uint16_t> local_socket,
-               std::pair<std::string, uint16_t> remote_socket, AudioDevice dev)
+               std::pair<std::string, uint16_t> remote_socket, AudioDevice dev,
+               asio::io_context &io)
     : local_address(local_socket.first), device(std::move(dev)),
-      rtp(local_socket, remote_socket) {
+      rtp(local_socket, remote_socket, io) {
   this->logger = spdlog::get("audpipe");
 
   int error = OPUS_OK;

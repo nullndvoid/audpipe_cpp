@@ -14,7 +14,7 @@ class Rtp {
 public:
   // Used by sender.
   Rtp(std::pair<std::string, uint16_t> local_socket,
-      std::pair<std::string, uint16_t> remote_socket);
+      std::pair<std::string, uint16_t> remote_socket, asio::io_context &io);
 
   // NOTE: The hook should not be used for extensive media processing. It is
   // meant to be used as an interface between application and library where
@@ -31,7 +31,7 @@ public:
   //
   Rtp(std::pair<std::string, uint16_t> local_socket,
       std::pair<std::string, uint16_t> remote_socket,
-      std::pair<recv_hook_t, void *> cb);
+      std::pair<recv_hook_t, void *> cb, asio::io_context &io);
 
   std::pair<recv_hook_t, void *> recv_callback = {nullptr, nullptr};
 
@@ -52,7 +52,7 @@ private:
   uvgrtp::session *session = nullptr;
   uvgrtp::media_stream *stream = nullptr;
 
-  asio::io_context io;
+  asio::io_context &io;
 
   std::shared_ptr<spdlog::logger> logger;
 
