@@ -14,7 +14,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(audpipe src/main.cpp src/rtp.cpp src/server.cpp src/client.cpp src/config.cpp)
+add_executable(audpipe src/main.cpp src/rtp.cpp src/server.cpp
+                       src/shutdown.cpp src/client.cpp src/config.cpp)
 
 if(UNIX AND NOT APPLE)
     find_package(PkgConfig REQUIRED)
