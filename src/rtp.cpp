@@ -1,22 +1,18 @@
 #include "rtp.hxx"
+#include "shutdown.hxx"
 
+#include <asio/error_code.hpp>
 #include <cassert>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
 
-#include <spdlog/spdlog.h>
-
-#include <uvgrtp/lib.hh>
-
 uvgrtp::context Rtp::ctx;
 
 constexpr int DEFAULT_SEND_FLAGS =
-    RCE_RTCP | RCE_SRTP | RCE_SRTP_REPLAY_PROTECTION |
-    RCE_SYSTEM_CALL_CLUSTERING | RCE_SEND_ONLY | RCE_SRTP_KMNGMNT_ZRTP;
+    RCE_RTCP | RCE_SYSTEM_CALL_CLUSTERING | RCE_SEND_ONLY;
 
-constexpr int DEFAULT_RECV_FLAGS =
-    RCE_RTCP | RCE_SRTP | RCE_SRTP_REPLAY_PROTECTION | RCE_SRTP_KMNGMNT_ZRTP;
+constexpr int DEFAULT_RECV_FLAGS = RCE_RTCP;
 
 // Confusingly the server connects to the client, this is my poor naming.
 Rtp::Rtp(std::pair<std::string, uint16_t> local_socket,
@@ -48,7 +44,15 @@ Rtp::Rtp(std::pair<std::string, uint16_t> local_socket,
            remote_socket.second);
 }
 
+void asio_signal_handler(const asio::error_code &error, int signum) {
+  if (!error) {
+    request_shutdown();
+  }
+}
+
 void Rtp::write_frames(uint8_t *data, size_t data_len) {
+  auto lock = std::scoped_lock(this->teardown_mutex);
+
   if (this->stopped.load() || this->stream == nullptr) {
     return;
   }
@@ -72,6 +76,11 @@ void Rtp::init_rtp(Rtp *rtp, bool sending, std::string &local_addr,
     // media_stream is created.
     assert(rtp->recv_callback.first != nullptr);
   }
+
+  // Set asio to respect shutdowns as everywhere else.
+  asio::signal_set signals(rtp->io, SIGINT, SIGTERM);
+
+  signals.async_wait(asio_signal_handler);
 
   if (rtp->session == nullptr) {
     auto error_str = "Failed to create uvgRTP session. Must be OOM.";
@@ -131,15 +140,17 @@ bool Rtp::is_initialised() const {
 bool Rtp::is_stopped() const { return this->stopped.load(); }
 
 void Rtp::handshake_client() {
-  asio::steady_timer timer(this->io, asio::chrono::seconds(5));
-  timer.wait();
+  if (is_shutdown_requested()) {
+    throw std::runtime_error("Shutdown requested before client handshake.");
+  }
 
   this->logger->info("Sent client handshake!");
 }
 
 void Rtp::handshake_server() {
-  asio::steady_timer timer(this->io, asio::chrono::seconds(5));
-  timer.wait();
+  if (is_shutdown_requested()) {
+    throw std::runtime_error("Shutdown requested before server handshake.");
+  }
 
   this->logger->info("Sent server handshake!");
 }
