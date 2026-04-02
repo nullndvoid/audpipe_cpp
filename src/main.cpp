@@ -13,13 +13,30 @@
 #include <thread>
 
 inline void print_usage() {
-  std::cerr << "Usage: audpipe (client | server)" << std::endl;
+  std::cerr << "Usage: audpipe (client | server)\n"
+               "\nOr run with --help to see more options"
+            << std::endl;
+}
+
+inline void print_help() {
+  std::cerr
+      << "audpipe (client | server)\n"
+         "Flags:\n"
+         "\t-h, --help\t\tDisplay a list of flags and options.\n"
+         "\t-c, --config\t\tOverride the default config file.\n"
+         "\t-d, --daemonise\t\tRun in the background. Currently a no-op.\n"
+         "\t-v\t\t\tVerbose logging (enables debug logs).\n"
+         "\nClient mode: creates a virtual input and recieves audio from "
+         "remote server.\n"
+         "Server mode: records from a given input device and forwards to a "
+         "remote client."
+      << std::endl;
 }
 
 void asio_signal_handler(const asio::error_code &error, int signal_number,
                          asio::io_context &io_context) {
   auto logger = spdlog::get("audpipe");
-  logger->critical("Got signal {}", signal_number);
+  logger->critical("Got signal {}", strsignal(signal_number));
 
   if (!error) {
     request_shutdown();
@@ -38,7 +55,7 @@ int main(int argc, char **argv) {
   std::thread signal_thread([&io]() { io.run(); });
 
   auto stderr_logger = spdlog::stderr_color_mt("audpipe");
-  stderr_logger->set_level(spdlog::level::info);
+  stderr_logger->set_level(spdlog::level::debug);
 
   auto die = [&] {
     print_usage();
@@ -55,6 +72,10 @@ int main(int argc, char **argv) {
     mode = Mode::CLIENT;
   } else if (strcmp(subcommand, "server") == 0) {
     mode = Mode::SERVER;
+  } else if (strcmp(subcommand, "--help") == 0 ||
+             strcmp(subcommand, "-h") == 0) {
+    print_help();
+    exit(0);
   } else {
     die();
   }
