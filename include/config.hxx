@@ -46,10 +46,10 @@ public:
   // Converts the `Mode` to a string, lowercase.
   static std::string mode_to_str(Mode m);
 
-  std::string local_ip;
+  std::string local_ip = DEFAULT_LOCAL_IP;
   std::string remote_ip;
   uint16_t remote_port;
-  uint16_t local_port;
+  uint16_t local_port = DEFAULT_LOCAL_PORT;
 
   // Connection policy for initial handshake and runtime health.
   struct ConnectionPolicy connection;

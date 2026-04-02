@@ -140,71 +140,12 @@ Config::Config(const std::string &cfg_path, Mode mode) {
     throw;
   }
 
-  logger->info("Successfully read configuration file from \'{}\'.",
-               path.native());
-
-  // Must be present or we shit the bed.
-  auto remote_table_name = mode_to_str(remote(mode));
-  auto remotes = table[remote_table_name];
-
-  // May be null, in which case we stick with defaults.
-  auto local_table_name = mode_to_str(mode);
-  auto locals = table[local_table_name];
-
   std::string err_msg;
   auto die = [&] {
     logger->error(err_msg);
 
     throw std::runtime_error(err_msg);
   };
-
-  if (!remotes || !remotes.is_table()) {
-    err_msg =
-        std::format("Expected table `[{}]` in config file.", remote_table_name);
-
-    logger->error(err_msg);
-
-    throw std::runtime_error(err_msg);
-  }
-
-  auto ip = remotes["ip"].value<std::string>();
-  if (!ip.has_value()) {
-    err_msg =
-        std::format("You need to set {}.ip in config file.", remote_table_name);
-
-    die();
-  }
-
-  this->remote_ip = validate_ip(ip.value());
-
-  auto port = remotes["port"].value_exact<int64_t>();
-  if (!port.has_value()) {
-    err_msg = std::format("You need to set {}.port in config file. The "
-                          "port should also be in the range 1024-65535.",
-                          remote_table_name);
-
-    die();
-  }
-  this->remote_port = validate_port(port.value());
-
-  // Then, check `mode` table for ip and port. If not present, defaults are
-  // already set, and we will log these values later.
-  if (!locals) {
-    return;
-  }
-
-  auto local_ip = locals["ip"].value_or<std::string>(DEFAULT_LOCAL_IP);
-  this->local_ip = validate_ip(local_ip);
-
-  auto local_port = locals["port"].value_exact<int64_t>();
-  if (!local_port.has_value()) {
-    err_msg = std::format("You need to set {}.port in config file. The "
-                          "port should also be in the range 1024-65535.",
-                          local_table_name);
-
-    die();
-  }
-  this->local_port = validate_port(local_port.value());
 
   // Parse optional connection policy section with sensible defaults.
   auto connection_table = table["net"];
@@ -260,6 +201,66 @@ Config::Config(const std::string &cfg_path, Mode mode) {
           static_cast<uint16_t>(unreachable_failures.value());
     }
   }
+
+  // Must be present or we shit the bed.
+  auto remote_table_name = mode_to_str(remote(mode));
+  auto remotes = table[remote_table_name];
+
+  // May be null, in which case we stick with defaults.
+  auto local_table_name = mode_to_str(mode);
+  auto locals = table[local_table_name];
+
+  if (!remotes || !remotes.is_table()) {
+    err_msg =
+        std::format("Expected table `[{}]` in config file.", remote_table_name);
+
+    logger->error(err_msg);
+
+    throw std::runtime_error(err_msg);
+  }
+
+  auto ip = remotes["ip"].value<std::string>();
+  if (!ip.has_value()) {
+    err_msg =
+        std::format("You need to set {}.ip in config file.", remote_table_name);
+
+    die();
+  }
+
+  this->remote_ip = validate_ip(ip.value());
+
+  auto port = remotes["port"].value_exact<int64_t>();
+  if (!port.has_value()) {
+    err_msg = std::format("You need to set {}.port in config file. The "
+                          "port should also be in the range 1024-65535.",
+                          remote_table_name);
+
+    die();
+  }
+  this->remote_port = validate_port(port.value());
+
+  // Then, check `mode` table for ip and port. If not present, defaults are
+  // already set, and we will log these values later.
+  if (!locals) {
+    logger->info("Read configuration file from \'{}\'.", path.native());
+
+    return;
+  }
+
+  auto local_ip = locals["ip"].value_or<std::string>(DEFAULT_LOCAL_IP);
+  this->local_ip = validate_ip(local_ip);
+
+  auto local_port = locals["port"].value_exact<int64_t>();
+  if (!local_port.has_value()) {
+    err_msg = std::format("You need to set {}.port in config file. The "
+                          "port should also be in the range 1024-65535.",
+                          local_table_name);
+
+    die();
+  }
+  this->local_port = validate_port(local_port.value());
+
+  logger->info("Read configuration file from \'{}\'.", path.native());
 }
 
 std::optional<std::string> Config::get_user_config_path() {
