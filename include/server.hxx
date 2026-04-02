@@ -37,6 +37,7 @@ private:
 
   std::vector<uint8_t> opus_enc_outbuf;
   size_t opus_enc_outbuf_size;
+  std::vector<opus_int16> pcm_stereo_buf;
   AudioDevice device;
   std::atomic<bool> running{false};
 

@@ -10,6 +10,7 @@
 #include "audio.hxx"
 #include "opus.h"
 
+#include "opus_defines.h"
 #include "rtp.hxx"
 #include "server.hxx"
 
@@ -33,9 +34,24 @@ Server::Server(std::pair<std::string, uint16_t> local_socket,
     throw std::runtime_error(error_msg);
   }
 
+  opus_encoder_ctl(this->opusenc, OPUS_SET_BITRATE(192000));
+  opus_encoder_ctl(this->opusenc, OPUS_SET_COMPLEXITY(10));
+  opus_encoder_ctl(this->opusenc, OPUS_SET_DTX(1));
+  opus_encoder_ctl(
+      this->opusenc,
+      OPUS_SET_VBR(
+          1)); // TODO: Encryption needs to be handled specially with VBR on.
+  opus_encoder_ctl(this->opusenc, OPUS_SET_VBR_CONSTRAINT(0));
+  opus_encoder_ctl(this->opusenc, OPUS_SET_INBAND_FEC(0));
+  opus_encoder_ctl(this->opusenc, OPUS_SET_PACKET_LOSS_PERC(0));
+  opus_encoder_ctl(this->opusenc,
+                   OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_FULLBAND));
+  opus_encoder_ctl(this->opusenc, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
+
   this->opus_enc_outbuf = std::vector<uint8_t>();
   this->opus_enc_outbuf.resize(OPUS_FRAME_SIZE);
   this->opus_enc_outbuf_size = 0;
+  this->pcm_stereo_buf.resize(960 * 2);
 
   auto &audio = AudioBackend::instance();
 
@@ -44,6 +60,10 @@ Server::Server(std::pair<std::string, uint16_t> local_socket,
 
     uint8_t *opus_data = static_cast<uint8_t *>(this->opus_enc_outbuf.data());
     size_t opus_data_len = this->opus_enc_outbuf_size;
+
+    if (opus_data_len == 0) {
+      return;
+    }
 
     // TODO: Make this check for errors/fail etc. For now just hand it off.
     this->rtp.write_frames(opus_data, opus_data_len);
@@ -114,15 +134,42 @@ std::string getline() {
 
 // Populates opus_enc_outbuf.
 void Server::bytes_to_opus(const uint8_t *data, size_t len) {
-  //   960 frame size = 20ms at 48kHz. Taken from Opus documentation.
-  const size_t max_bytes = OPUS_FRAME_SIZE; // May want to be 3840?
+  // 960 samples/channel is 20 ms at 48 kHz.
+  const size_t max_bytes = OPUS_FRAME_SIZE;
+  this->opus_enc_outbuf_size = 0;
+
+  if (data == nullptr || len < sizeof(opus_int16)) {
+    return;
+  }
 
   // Clear the outbuf.
   memset(this->opus_enc_outbuf.data(), 0, this->opus_enc_outbuf.size());
 
-  auto res =
-      opus_encode(this->opusenc, reinterpret_cast<const opus_int16 *>(data),
-                  960, this->opus_enc_outbuf.data(), max_bytes);
+  const auto *in = reinterpret_cast<const opus_int16 *>(data);
+  const size_t samples_total = len / sizeof(opus_int16);
+  const opus_int16 *encode_in = nullptr;
+
+  if (this->device.channels == 1) {
+    if (samples_total < 960) {
+      return;
+    }
+
+    // Upmix mono capture to stereo expected by encoder.
+    for (size_t i = 0; i < 960; i++) {
+      auto sample = in[i];
+      this->pcm_stereo_buf[2 * i] = sample;
+      this->pcm_stereo_buf[2 * i + 1] = sample;
+    }
+    encode_in = this->pcm_stereo_buf.data();
+  } else {
+    if (samples_total < 1920) {
+      return;
+    }
+    encode_in = in;
+  }
+
+  auto res = opus_encode(this->opusenc, encode_in, 960,
+                         this->opus_enc_outbuf.data(), max_bytes);
 
   // TODO: Recover from this.
   if (res < 0) {
