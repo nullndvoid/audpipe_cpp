@@ -86,12 +86,14 @@ int main(int argc, char **argv) {
       server.stop();
     }
 
-  } catch (...) {
+  } catch (const std::exception &e) {
     io.stop();
     if (signal_thread.joinable()) {
       signal_thread.join();
     }
-    // Presume it was logged upstream and just quit.
+
+    stderr_logger->error("Quitting with exception: {}", e.what());
+
     exit(1);
   }
 

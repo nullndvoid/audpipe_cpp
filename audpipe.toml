@@ -6,7 +6,7 @@
 # defaults. I should add these to the README or something.
 
 [client]
-ip = "localhost"
+ip = "0.0.0.0"
 port = 7981
 
 [server]

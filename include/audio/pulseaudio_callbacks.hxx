@@ -30,6 +30,12 @@ typedef struct pa_module_userdata {
   pa_mainloop *ml;
 } pa_module_userdata_t;
 
+typedef struct pa_module_list_userdata {
+  std::vector<uint32_t> *indices;
+  std::shared_ptr<spdlog::logger> logger;
+  std::string source_name_prefix;
+} pa_module_list_userdata_t;
+
 typedef int *success_userdata_t;
 
 void pa_sinklist_cb(pa_context *c, const pa_sink_info *l, int eol,
@@ -41,6 +47,9 @@ void pa_sourcelist_cb(pa_context *c, const pa_source_info *l, int eol,
 void pa_state_cb(pa_context *c, void *userdata);
 
 void pa_load_module_cb(pa_context *c, uint32_t idx, void *userdata);
+
+void pa_module_list_cb(pa_context *c, const pa_module_info *info, int eol,
+                       void *userdata);
 
 // Run the mainloop until a `pa_operation` completes or is cancelled.
 // Throws std::runtime_error if `op` is `nullptr`.

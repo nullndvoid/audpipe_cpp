@@ -166,6 +166,30 @@ void pa_load_module_cb(pa_context *c, uint32_t idx, void *userdata) {
                     ud->target_name, idx);
 }
 
+void pa_module_list_cb(pa_context *c, const pa_module_info *info, int eol,
+                       void *userdata) {
+  auto *ud = static_cast<pa_module_list_userdata_t *>(userdata);
+
+  if (eol > 0 || info == nullptr || info->name == nullptr ||
+      info->argument == nullptr) {
+    return;
+  }
+
+  if (std::string(info->name) != "module-pipe-source") {
+    return;
+  }
+
+  auto args = std::string(info->argument);
+  auto probe = std::format("source_name={}", ud->source_name_prefix);
+  if (args.find(probe) == std::string::npos) {
+    return;
+  }
+
+  ud->indices->push_back(info->index);
+  ud->logger->debug("Found stale audpipe module `{}` with index {}.",
+                    info->name, info->index);
+}
+
 void wait_for_operation(pa_operation *op, pa_mainloop *ml) {
   if (op == nullptr) {
     throw std::runtime_error("PulseAudio did not create an operation.");

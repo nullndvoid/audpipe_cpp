@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <vector>
 
+#include "spdlog/details/os.h"
 #include <spdlog/spdlog.h>
 
 #include <pulse/pulseaudio.h>
@@ -30,6 +31,11 @@ PulseaudioBackend::PulseaudioBackend() {
   this->mainloop = pa_mainloop_new();
   this->api = pa_mainloop_get_api(mainloop);
   this->ctx = pa_context_new(api, "audpipe");
+
+  auto pid = spdlog::details::os::pid();
+  this->virtual_source_name = std::format("audpipe_input_{}", pid);
+  this->virtual_source_fifo_path =
+      std::format("/tmp/audpipe_input_{}.pcm", pid);
 
   auto connection_err =
       pa_context_connect(ctx, nullptr, PA_CONTEXT_NOFLAGS, nullptr);
@@ -254,6 +260,8 @@ void PulseaudioBackend::setup_virtual_input() {
 
   this->virtual_input_error.clear();
 
+  cleanup_stale_virtual_sources();
+
   ::unlink(this->virtual_source_fifo_path.c_str());
   if (::mkfifo(this->virtual_source_fifo_path.c_str(), 0600) != 0) {
     err_msg = std::format("Failed to create fifo '{}': {}",
@@ -264,9 +272,9 @@ void PulseaudioBackend::setup_virtual_input() {
 
   std::string target_name = "module-pipe-source";
   std::string module_args = std::format(
-      "source_name=audpipe_input file={} format=s16le rate=48000 "
+      "source_name={} file={} format=s16le rate=48000 "
       "channels=2 source_properties=device.description=audpipe_input",
-      this->virtual_source_fifo_path);
+      this->virtual_source_name, this->virtual_source_fifo_path);
 
   pa_module_userdata_t ud = {
       .logger = this->logger,
@@ -334,9 +342,46 @@ void PulseaudioBackend::setup_virtual_input() {
     ::usleep(2000);
   }
 
-  this->logger->info("Created virtual source `audpipe_input` via Pulseaudio "
-                     "(module-pipe-source).");
+  this->logger->info("Created virtual source `{}` via Pulseaudio "
+                     "(module-pipe-source).",
+                     this->virtual_source_name);
   this->virtual_source_loaded = true;
+}
+
+void PulseaudioBackend::cleanup_stale_virtual_sources() {
+  std::vector<uint32_t> stale_indices;
+
+  pa_module_list_userdata_t list_ud = {
+      .indices = &stale_indices,
+      .logger = this->logger,
+      .source_name_prefix = "audpipe_input_",
+  };
+
+  auto *list_op =
+      pa_context_get_module_info_list(this->ctx, pa_module_list_cb, &list_ud);
+  if (list_op != nullptr) {
+    wait_for_operation(list_op, this->mainloop);
+  }
+
+  for (auto idx : stale_indices) {
+    int success = -1;
+    auto *op =
+        pa_context_unload_module(this->ctx, idx, pa_ctx_success_cb, &success);
+    if (op == nullptr) {
+      this->logger->warn("Could not create unload op for stale module index "
+                         "{}.",
+                         idx);
+      continue;
+    }
+
+    wait_for_operation(op, this->mainloop);
+    if (success == 0) {
+      this->logger->warn("Unload failed for stale module index {}.", idx);
+      continue;
+    }
+
+    this->logger->info("Unloaded stale audpipe module index {}.", idx);
+  }
 }
 
 void PulseaudioBackend::run_virtual_input() {
@@ -467,25 +512,21 @@ void PulseaudioBackend::destroy_virtual_input() {
   auto op = pa_context_unload_module(this->ctx, this->virtual_source_mod_idx,
                                      pa_ctx_success_cb, &success);
   if (op == nullptr) {
-    std::string err_msg =
-        "PulseAudio unload operation returned nullptr; refusing to continue.";
-
-    this->logger->critical(err_msg);
-    this->set_virtual_input_error(err_msg);
-    throw std::runtime_error(err_msg);
+    this->logger->warn("PulseAudio unload operation returned nullptr for "
+                       "module index {}.",
+                       this->virtual_source_mod_idx);
+    this->virtual_source_loaded = false;
+    this->virtual_source_mod_idx = PA_INVALID_INDEX;
+    ::unlink(this->virtual_source_fifo_path.c_str());
+    return;
   }
 
   wait_for_operation(op, this->mainloop);
 
   if (success == 0) {
-    std::string err_msg = std::format(
-        "pa_context_unload_module failed (success={}); backend is in "
-        "unrecoverable ERROR state until process restart.",
-        success);
-
-    this->logger->critical(err_msg);
-    this->set_virtual_input_error(err_msg);
-    throw std::runtime_error(err_msg);
+    this->logger->warn("pa_context_unload_module failed (success={}) for "
+                       "module index {}.",
+                       success, this->virtual_source_mod_idx);
   }
 
   this->logger->info("Unloaded virtual source module (index {}).",

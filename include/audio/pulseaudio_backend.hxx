@@ -51,7 +51,10 @@ private:
   uint32_t virtual_source_mod_idx{PA_INVALID_INDEX};
 
   // FIFO path used by module-pipe-source.
-  std::string virtual_source_fifo_path{"/tmp/audpipe_input.pcm"};
+  std::string virtual_source_fifo_path;
+
+  // Source name used for module-pipe-source.
+  std::string virtual_source_name;
 
   // Writer fd for the FIFO.
   int virtual_source_fd{-1};
@@ -72,6 +75,9 @@ private:
 
   // Called when data is available to write to the stream.
   static void stream_write_cb(pa_stream *s, size_t nbytes, void *userdata);
+
+  // Unload stale audpipe module-pipe-source instances from previous runs.
+  void cleanup_stale_virtual_sources();
 
   void set_virtual_input_error(const std::string &msg);
 };
