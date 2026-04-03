@@ -1,7 +1,7 @@
 #include "keys.hxx"
 
-#include "filters.h"
-#include "hex.h"
+#include "base64.h"
+#include "files.h"
 
 #include <filesystem>
 #include <format>
@@ -9,6 +9,7 @@
 #include <stdexcept>
 
 #include "spdlog/spdlog.h"
+#include "xed25519.h"
 
 using namespace CryptoPP;
 
@@ -112,6 +113,8 @@ void KeyManager::verify() {}
 
 void KeyManager::load() {}
 
+// You can safely call .value() on signer, verifier after this, provided it does
+// not throw an exception.
 void KeyManager::ensure_loaded() {
   if (this->loaded && this->signer.has_value() && this->verifier.has_value()) {
     return;
@@ -120,24 +123,60 @@ void KeyManager::ensure_loaded() {
   this->load_or_create();
 }
 
-void KeyManager::pubkey(ed25519::Signer &signer) {
-  ed25519::Verifier verifier(signer);
+// We may cache the result but this is called on `create()`.
+void KeyManager::create_pubkey() {
+  std::string err_msg;
+  auto die = [&] {
+    this->logger->error(err_msg);
+
+    throw std::runtime_error(err_msg);
+  };
+
+  if (!signer.has_value()) {
+    err_msg = "KeyManager->signer not set but called `KeyManager::pubkey`! "
+              "This is an internal invariant. Probably file an issue if you "
+              "see this.";
+
+    die();
+  }
+
+  this->verifier = ed25519::Verifier(signer.value());
+
+  auto file_sink = new FileSink(this->pubkey_file);
+  Base64Encoder encoder(file_sink);
 
   const ed25519PublicKey &pubkey =
-      dynamic_cast<const ed25519PublicKey &>(verifier.GetPublicKey());
+      dynamic_cast<const ed25519PublicKey &>(this->verifier->GetPublicKey());
+
+  pubkey.Save(encoder);
+  encoder.MessageEnd();
+
+  this->pubkey = pubkey;
+}
+
+KeyManager::~KeyManager() {
+  if (this->privkey_file.is_open()) {
+    this->privkey_file.close();
+  }
+
+  if (this->pubkey_file.is_open()) {
+    this->pubkey_file.close();
+  }
 }
 
 // Creates a new keypair from scratch.
 void KeyManager::create() {
-  auto privkey_str = std::string();
-  HexEncoder encoder(new StringSink(privkey_str));
+  Base64Encoder encoder(new FileSink(this->privkey_file));
 
   AutoSeededRandomPool prng;
-  ed25519::Signer signer;
-
-  signer.AccessPrivateKey().GenerateRandom(prng);
+  this->signer = ed25519::Signer();
+  this->signer->AccessPrivateKey().GenerateRandom(prng);
   const ed25519PrivateKey &privkey =
-      dynamic_cast<const ed25519PrivateKey &>(signer.GetPrivateKey());
+      dynamic_cast<const ed25519PrivateKey &>(this->signer->GetPrivateKey());
 
   privkey.Save(encoder);
+  encoder.MessageEnd();
+
+  this->create_pubkey();
+  this->privkey = privkey;
 }

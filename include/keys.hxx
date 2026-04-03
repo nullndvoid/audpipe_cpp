@@ -19,6 +19,8 @@ public:
   KeyManager(const std::filesystem::path &keys_dir,
              const std::string &keyfile_prefix);
 
+  ~KeyManager();
+
   // Loads or creates a ed25519 keypair.
   void load_or_create();
 
@@ -47,6 +49,9 @@ private:
   std::fstream pubkey_file;
   std::fstream privkey_file;
 
+  CryptoPP::ed25519PrivateKey privkey;
+  CryptoPP::ed25519PublicKey pubkey;
+
   // Guard to check signer and verifier are loaded.
   void ensure_loaded();
 
@@ -56,7 +61,9 @@ private:
   // Helper function to create a new keypair.
   void create();
 
-  void pubkey(CryptoPP::ed25519::Signer &signer);
+  // Helper function used to derive a public key from a Signer.
+  // Called in `create()` but we may cache this for later usage.
+  void create_pubkey();
 
   // Ensures a file is open before we try to read to or write from the given
   // `fstream`.
