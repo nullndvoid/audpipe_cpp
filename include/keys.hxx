@@ -49,6 +49,9 @@ private:
   std::fstream pubkey_file;
   std::fstream privkey_file;
 
+  std::filesystem::path pubkey_path;
+  std::filesystem::path privkey_path;
+
   CryptoPP::ed25519PrivateKey privkey;
   CryptoPP::ed25519PublicKey pubkey;
 

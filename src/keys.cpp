@@ -1,6 +1,7 @@
 #include "keys.hxx"
 
 #include "base64.h"
+#include "cryptlib.h"
 #include "files.h"
 
 #include <filesystem>
@@ -8,6 +9,7 @@
 #include <iostream>
 #include <stdexcept>
 
+#include "queue.h"
 #include "spdlog/spdlog.h"
 #include "xed25519.h"
 
@@ -80,9 +82,9 @@ void KeyManager::load_or_create() {
   };
 
   // Open `keys_dir/`keyfile_prefix`_ed25519` and .pub.
-  std::filesystem::path pubkey_path =
+  this->pubkey_path =
       this->keys_dir / std::format("{}_ed25519.pub", this->keyfile_prefix);
-  std::filesystem::path privkey_path =
+  this->privkey_path =
       this->keys_dir / std::format("{}_ed25519", this->keyfile_prefix);
 
   // These should be open for r/w if they don't throw.
@@ -101,17 +103,42 @@ void KeyManager::load_or_create() {
   if (privkey_file_size == 0 || pubkey_file_size == 0) {
     create();
 
+    logger->info("Created ed25519 keypair in {}.", this->keys_dir.native());
+
     return;
   }
 
   load();
+
+  logger->info("Loaded ed25519 keypair from {}.", this->keys_dir.native());
 }
 
 void KeyManager::sign() {}
 
 void KeyManager::verify() {}
 
-void KeyManager::load() {}
+void load_from_file(const std::string &filename, BufferedTransformation &bt) {
+  FileSource file(filename.c_str(), true);
+
+  file.TransferTo(bt);
+  bt.MessageEnd();
+}
+
+void KeyManager::load() {
+  this->privkey_file.close();
+  this->pubkey_file.close();
+
+  Base64Decoder dec(new ByteQueue());
+
+  ::load_from_file(this->pubkey_path, dec);
+  this->pubkey.Load(dec);
+
+  auto queue = dynamic_cast<ByteQueue *>(dec.AttachedTransformation());
+  queue->Clear();
+
+  ::load_from_file(this->privkey_path, dec);
+  this->privkey.Load(dec);
+}
 
 // You can safely call .value() on signer, verifier after this, provided it does
 // not throw an exception.
