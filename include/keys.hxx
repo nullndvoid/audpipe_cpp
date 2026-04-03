@@ -40,13 +40,17 @@ struct TrustedPeer {
 
 public:
   // To JSON model.
-  json::TrustedPeer to_json_model();
+  json::TrustedPeer to_json() const;
   // From JSON model with validation.
   TrustedPeer(json::TrustedPeer json_model);
 
 private:
   std::array<uint8_t, 32> decode_hex_id(const std::string &hex);
   CryptoPP::ed25519PublicKey decode_pubkey_base64(const std::string &b64);
+
+  std::string encode_hex_id(const std::array<uint8_t, 32> &id) const;
+  std::string
+  encode_pubkey_base64(const CryptoPP::ed25519PublicKey &pubkey) const;
 };
 
 // Manages ed25519 keys and message signing, verification using these.

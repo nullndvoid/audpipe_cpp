@@ -301,3 +301,30 @@ TrustedPeer::decode_pubkey_base64(const std::string &b64) {
   pubkey.Load(q);
   return pubkey;
 }
+
+std::string
+TrustedPeer::encode_hex_id(const std::array<uint8_t, 32> &id) const {
+  std::string out;
+  CryptoPP::StringSource ss(
+      id.data(), id.size(), true,
+      new CryptoPP::HexEncoder(new CryptoPP::StringSink(out), false));
+  return out;
+}
+
+std::string TrustedPeer::encode_pubkey_base64(
+    const CryptoPP::ed25519PublicKey &pubkey) const {
+  std::string out;
+  CryptoPP::Base64Encoder encoder(new CryptoPP::StringSink(out), false);
+  pubkey.Save(encoder);
+  encoder.MessageEnd();
+  return out;
+}
+
+json::TrustedPeer TrustedPeer::to_json() const {
+  return json::TrustedPeer{
+      .signer_id = encode_hex_id(this->signer_id),
+      .pubkey_base64 = encode_pubkey_base64(this->pubkey),
+      .label = this->label,
+      .revoked = this->revoked,
+  };
+}
