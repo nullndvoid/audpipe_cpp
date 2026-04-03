@@ -9,6 +9,8 @@
 #include <iostream>
 #include <stdexcept>
 
+#include "hex.h"
+#include "nlohmann/json.hpp"
 #include "queue.h"
 #include "spdlog/spdlog.h"
 #include "xed25519.h"
@@ -210,4 +212,92 @@ void KeyManager::create() {
 
   this->create_pubkey();
   this->privkey = privkey;
+}
+
+std::vector<TrustedPeer> KeyManager::get_trusted_peers() {
+  using json = nlohmann::json;
+
+  json data;
+
+  std::string err_msg;
+  auto die = [&] {
+    this->logger->error(err_msg);
+
+    throw std::runtime_error(err_msg);
+  };
+
+  this->trusted_peers_file >> data;
+
+  if (!data.is_array()) {
+    err_msg = std::format(
+        "{} appears to be corrupted. Expected an array of TrustedPeers.",
+        this->trusted_peers_path.filename().native());
+
+    die();
+  }
+
+  for (auto &elem : data) {
+    if (!elem.is_object()) {
+      err_msg = std::format(
+          "{} appears to be corrupted. Expected an array of TrustedPeers.",
+          this->trusted_peers_path.filename().native());
+    }
+  }
+
+  return {}; // change me.
+}
+
+TrustedPeer::TrustedPeer(json::TrustedPeer json_model) {
+  std::string err_msg;
+  auto logger = spdlog::get("audpipe");
+  auto die = [&] {
+    logger->error(err_msg);
+
+    throw std::runtime_error(err_msg);
+  };
+
+  if (json_model.signer_id.empty()) {
+    err_msg =
+        std::format("Empty `signer_id` field when reading from JSON file!");
+    die();
+  }
+
+  if (json_model.pubkey_base64.empty()) {
+    err_msg =
+        std::format("Empty `pubkey_base64` field when reading from JSON file!");
+    die();
+  }
+
+  // Expect 64 characters for `signer_id` as it is hex encoded.
+  if (json_model.signer_id.length() != 64) {
+    err_msg =
+        std::format("Incorrect `signer_id` length as this is hex encoded!");
+    die();
+  }
+
+  // Decode fields and create TrustedPeer.
+  this->signer_id = decode_hex_id(json_model.signer_id);
+  this->pubkey = decode_pubkey_base64(json_model.pubkey_base64);
+  this->label = std::move(json_model.label);
+  this->revoked = json_model.revoked;
+}
+
+std::array<uint8_t, 32> TrustedPeer::decode_hex_id(const std::string &hex) {
+  std::array<uint8_t, 32> out{};
+  auto ss =
+      CryptoPP::StringSource(hex, true,
+                             new CryptoPP::HexDecoder(new CryptoPP::ArraySink(
+                                 out.data(), out.size())));
+  return out;
+}
+
+CryptoPP::ed25519PublicKey
+TrustedPeer::decode_pubkey_base64(const std::string &b64) {
+  CryptoPP::ByteQueue q;
+  auto ss = CryptoPP::StringSource(
+      b64, true, new CryptoPP::Base64Decoder(new CryptoPP::Redirector(q)));
+
+  CryptoPP::ed25519PublicKey pubkey;
+  pubkey.Load(q);
+  return pubkey;
 }

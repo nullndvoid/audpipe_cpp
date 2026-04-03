@@ -6,6 +6,8 @@
 
 #include "spdlog/logger.h"
 
+#include "nlohmann/json.hpp" // IWYU pragma: keep
+
 #include <cstdint>
 #include <osrng.h>
 #include <xed25519.h>
@@ -14,6 +16,38 @@
 #include <fstream>
 #include <memory>
 #include <optional>
+
+namespace json {
+struct TrustedPeer {
+  std::string signer_id;
+  std::string pubkey_base64;
+  std::string label;
+  bool revoked = false;
+};
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(TrustedPeer, signer_id,
+                                                pubkey_base64, label, revoked);
+
+} // namespace json
+
+// TODO: Could just serialise a list of these to a file. Prefixed with the
+// number of entries.
+struct TrustedPeer {
+  std::array<uint8_t, 32> signer_id;
+  CryptoPP::ed25519PublicKey pubkey;
+  std::string label;
+  bool revoked = false;
+
+public:
+  // To JSON model.
+  json::TrustedPeer to_json_model();
+  // From JSON model with validation.
+  TrustedPeer(json::TrustedPeer json_model);
+
+private:
+  std::array<uint8_t, 32> decode_hex_id(const std::string &hex);
+  CryptoPP::ed25519PublicKey decode_pubkey_base64(const std::string &b64);
+};
 
 // Manages ed25519 keys and message signing, verification using these.
 //
@@ -38,15 +72,6 @@ public:
   void verify();
 
   void get_pubkey();
-
-  // TODO: Could just serialise a list of these to a file. Prefixed with the
-  // number of entries.
-  struct TrustedPeer {
-    std::array<uint8_t, 32> signer_id;
-    CryptoPP::ed25519PublicKey pubkey;
-    std::string label;
-    bool revoked = false;
-  };
 
   std::array<uint8_t, 32> get_local_signer_id() const;
 
@@ -105,7 +130,6 @@ private:
                                                        std::ios::in |
                                                        std::ios::out);
 
-  // If the file does not exist, don't crash, just return nothing.
   std::vector<TrustedPeer> get_trusted_peers();
 };
 
