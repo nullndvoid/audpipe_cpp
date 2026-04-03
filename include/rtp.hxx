@@ -2,13 +2,18 @@
 #define __AUDPIPE_RTP
 
 #include "uvgrtp/lib.hh" // IWYU pragma: keep
+
 #include <asio.hpp>
+
 #include <spdlog/spdlog.h>
 
 #include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <string>
+
+// What the function should do in terms of exchanging ephemeral pubkeys.
+enum class Role { SEND_FIRST, RECV_FIRST };
 
 class Rtp {
 public:
@@ -64,6 +69,9 @@ private:
 
   // TODO: Handle RTCP information for reads and writes.
   void read_frames();
+
+  // ECDH key agreement.
+  void dhka(Role role);
 
   // Test initial reachability and fail fast.
   void handshake_client();

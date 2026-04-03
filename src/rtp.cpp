@@ -1,10 +1,16 @@
 #include "rtp.hxx"
+
 // #include "shutdown.hxx"
 
 #include <cassert>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+
+#include <osrng.h>
+#include <secblock.h>
+#include <sys/types.h>
+#include <xed25519.h>
 
 uvgrtp::context Rtp::ctx;
 
@@ -129,6 +135,26 @@ bool Rtp::is_initialised() const {
 
 bool Rtp::is_stopped() const { return this->stopped.load(); }
 
-void Rtp::handshake_client() { this->logger->info("Sent client handshake!"); }
+// TODO: Authenticate with ed25519.
+void Rtp::dhka(Role role) {
+  using namespace CryptoPP;
 
-void Rtp::handshake_server() { this->logger->info("Sent server handshake!"); }
+  AutoSeededRandomPool prng;
+
+  x25519 ecdh(prng);
+
+  // Generate public and private keys.
+  SecByteBlock privkey(x25519::SECRET_KEYLENGTH);
+  SecByteBlock pubkey(x25519::PUBLIC_KEYLENGTH);
+
+  ecdh.GenerateKeyPair(prng, privkey, pubkey);
+
+  if (role == Role::SEND_FIRST) {
+
+  } else {
+  }
+}
+
+void Rtp::handshake_client() {}
+
+void Rtp::handshake_server() {}
