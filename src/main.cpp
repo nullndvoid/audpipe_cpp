@@ -1,6 +1,7 @@
 #include "audio.hxx"
 #include "client.hxx"
 #include "config.hxx"
+#include "keys.hxx"
 #include "server.hxx"
 #include "shutdown.hxx"
 
@@ -82,6 +83,13 @@ int main(int argc, char **argv) {
 
   try {
     auto cfg = Config("./audpipe.toml", mode);
+
+    // TODO: Default prefix to remote device nickname if known, or hostname, or
+    // something?
+    auto key_mgr = KeyManager(cfg.keys_dir, "audpipe");
+
+    // For testing purposes.
+    key_mgr.load_or_create();
 
     stderr_logger->info("Starting {} on {}:{}.", Config::mode_to_str(mode),
                         cfg.local_ip, cfg.local_port);
