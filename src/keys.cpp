@@ -24,7 +24,8 @@ KeyManager::KeyManager(const std::filesystem::path &keys_dir,
 }
 
 void KeyManager::ensure_file_open(const std::filesystem::path &file_path,
-                                  std::fstream &fs) {
+                                  std::fstream &fs,
+                                  std::ios_base::openmode mode) {
   std::string err_msg;
   auto die = [&] {
     this->logger->error(err_msg);
@@ -43,7 +44,7 @@ void KeyManager::ensure_file_open(const std::filesystem::path &file_path,
 
     fs.open(file_path, std::ios::app);
     fs.close();
-    fs.open(file_path, std::ios::in | std::ios::out | std::ios::binary);
+    fs.open(file_path, mode);
   } catch (const std::ios_base::failure &e) {
     if (e.code().value() == 0) {
       throw;
@@ -64,7 +65,7 @@ void KeyManager::ensure_file_open(const std::filesystem::path &file_path,
   }
 
   if (!fs.is_open()) {
-    logger->error("Could not open config file at \'{}\' for unknown reasons.",
+    logger->error("Could not open file at \'{}\' for unknown reasons.",
                   file_path.native());
   }
 }
@@ -87,9 +88,12 @@ void KeyManager::load_or_create() {
   this->privkey_path =
       this->keys_dir / std::format("{}_ed25519", this->keyfile_prefix);
 
+  this->trusted_peers_path = this->keys_dir / "trusted_peers.json";
+
   // These should be open for r/w if they don't throw.
   ensure_file_open(pubkey_path, this->pubkey_file);
   ensure_file_open(privkey_path, this->privkey_file);
+  ensure_file_open(trusted_peers_path, this->trusted_peers_file);
 
   // If empty then we want to create a keypair.
   this->pubkey_file.seekg(0, std::ios::end);

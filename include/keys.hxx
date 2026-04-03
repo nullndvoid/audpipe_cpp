@@ -6,6 +6,7 @@
 
 #include "spdlog/logger.h"
 
+#include <cstdint>
 #include <osrng.h>
 #include <xed25519.h>
 
@@ -14,6 +15,12 @@
 #include <memory>
 #include <optional>
 
+// Manages ed25519 keys and message signing, verification using these.
+//
+// TODO: Allow trust-on-first-use in config file.
+//       this makes life easier for users who can't
+//       or won't copy paste their public keys over
+//       to remote.
 class KeyManager {
 public:
   KeyManager(const std::filesystem::path &keys_dir,
@@ -32,6 +39,24 @@ public:
 
   void get_pubkey();
 
+  // TODO: Could just serialise a list of these to a file. Prefixed with the
+  // number of entries.
+  struct TrustedPeer {
+    std::array<uint8_t, 32> signer_id;
+    CryptoPP::ed25519PublicKey pubkey;
+    std::string label;
+    bool revoked = false;
+  };
+
+  std::array<uint8_t, 32> get_local_signer_id() const;
+
+  std::optional<TrustedPeer>
+  lookup_peer(std::span<const uint8_t, 32> signer_id) const;
+
+  bool verify_with_signer_id(std::span<const uint8_t> message,
+                             std::span<const uint8_t> signature,
+                             std::span<const uint8_t, 32> signer_id) const;
+
 private:
   std::shared_ptr<spdlog::logger> logger;
 
@@ -48,6 +73,10 @@ private:
 
   std::fstream pubkey_file;
   std::fstream privkey_file;
+
+  std::fstream trusted_peers_file;
+
+  std::filesystem::path trusted_peers_path;
 
   std::filesystem::path pubkey_path;
   std::filesystem::path privkey_path;
@@ -71,7 +100,13 @@ private:
   // Ensures a file is open before we try to read to or write from the given
   // `fstream`.
   void ensure_file_open(const std::filesystem::path &file_path,
-                        std::fstream &fs);
+                        std::fstream &fs,
+                        std::ios_base::openmode mode = std::ios::app |
+                                                       std::ios::in |
+                                                       std::ios::out);
+
+  // If the file does not exist, don't crash, just return nothing.
+  std::vector<TrustedPeer> get_trusted_peers();
 };
 
 #endif

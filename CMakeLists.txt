@@ -34,6 +34,8 @@ CPMAddPackage(
   OPTIONS "CRYPTOPP_BUILD_TESTING OFF"
 )
 
+CPMAddPackage("gh:nlohmann/json@3.12.0")
+
 include(FetchContent)
 FetchContent_Declare(
     tomlplusplus
@@ -87,5 +89,9 @@ CPMAddPackage(
   GIT_TAG "main"
 )
 
-target_link_libraries(audpipe PRIVATE cryptopp::cryptopp uvgrtp opus spdlog::spdlog $<$<BOOL:${MINGW}>:ws2_32> tomlplusplus::tomlplusplus asio::asio)
+target_link_libraries(audpipe PRIVATE cryptopp::cryptopp uvgrtp opus
+                                      spdlog::spdlog $<$<BOOL:${MINGW}>:ws2_32>
+                                      tomlplusplus::tomlplusplus asio::asio
+                                      nlohmann_json::nlohmann_json)
+
 target_include_directories(audpipe PUBLIC include)
