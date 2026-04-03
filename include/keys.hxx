@@ -17,7 +17,7 @@
 #include <memory>
 #include <optional>
 
-namespace json {
+namespace schema {
 struct TrustedPeer {
   std::string signer_id;
   std::string pubkey_base64;
@@ -40,9 +40,9 @@ struct TrustedPeer {
 
 public:
   // To JSON model.
-  json::TrustedPeer to_json() const;
+  schema::TrustedPeer to_json() const;
   // From JSON model with validation.
-  TrustedPeer(json::TrustedPeer json_model);
+  TrustedPeer(schema::TrustedPeer json_model);
 
 private:
   std::array<uint8_t, 32> decode_hex_id(const std::string &hex);

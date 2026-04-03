@@ -228,26 +228,18 @@ std::vector<TrustedPeer> KeyManager::get_trusted_peers() {
 
   this->trusted_peers_file >> data;
 
-  if (!data.is_array()) {
-    err_msg = std::format(
-        "{} appears to be corrupted. Expected an array of TrustedPeers.",
-        this->trusted_peers_path.filename().native());
+  auto json_peers = data.get<std::vector<schema::TrustedPeer>>();
 
-    die();
-  }
+  std::vector<TrustedPeer> peers;
+  peers.reserve(json_peers.size());
+  std::ranges::transform(
+      json_peers, std::back_inserter(peers),
+      [](const auto &peer_json) { return TrustedPeer(peer_json); });
 
-  for (auto &elem : data) {
-    if (!elem.is_object()) {
-      err_msg = std::format(
-          "{} appears to be corrupted. Expected an array of TrustedPeers.",
-          this->trusted_peers_path.filename().native());
-    }
-  }
-
-  return {}; // change me.
+  return peers;
 }
 
-TrustedPeer::TrustedPeer(json::TrustedPeer json_model) {
+TrustedPeer::TrustedPeer(schema::TrustedPeer json_model) {
   std::string err_msg;
   auto logger = spdlog::get("audpipe");
   auto die = [&] {
@@ -320,8 +312,8 @@ std::string TrustedPeer::encode_pubkey_base64(
   return out;
 }
 
-json::TrustedPeer TrustedPeer::to_json() const {
-  return json::TrustedPeer{
+schema::TrustedPeer TrustedPeer::to_json() const {
+  return schema::TrustedPeer{
       .signer_id = encode_hex_id(this->signer_id),
       .pubkey_base64 = encode_pubkey_base64(this->pubkey),
       .label = this->label,
