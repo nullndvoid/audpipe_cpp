@@ -54,6 +54,13 @@ public:
   // Connection policy for initial handshake and runtime health.
   struct ConnectionPolicy connection;
 
+  // The parent directory of where the config file is.
+  std::filesystem::path config_dir;
+
+  // The absolute path to the directory containing the key files.
+  // Will currently set this to `config_dir`.
+  std::filesystem::path keys_dir;
+
 private:
   static std::string file_to_str(const std::filesystem::path &path);
   // Resolve hostnames as required using system DNS.

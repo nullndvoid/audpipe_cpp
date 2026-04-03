@@ -126,6 +126,12 @@ Config::Config(const std::string &cfg_path, Mode mode) {
   }
 
   auto p = std::filesystem::canonical(path);
+
+  this->config_dir = p.parent_path();
+
+  // TODO: Allow configuring this and other key storage/management stuff.
+  this->keys_dir = this->config_dir;
+
   auto contents = Config::file_to_str(p);
 
   // Now parse as TOML.
